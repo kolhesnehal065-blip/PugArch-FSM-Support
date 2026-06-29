@@ -1,0 +1,6 @@
+{
+  "name": "PugArch FSM Support",
+  "description": "WhatsApp-style mobile chatbot with Vision AI screenshot OCR, voice transcriptions, dynamic multilinguality, and secure admin analytics dashboard",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
