@@ -542,24 +542,29 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
 });
 
+function normalizeEnvValue(value: string | undefined): string {
+  return (value || "").trim().replace(/^['"]|['"]$/g, "");
+}
+
 function getAdminEmails(): string[] {
-  return (process.env.ADMIN_EMAILS || "")
+  return normalizeEnvValue(process.env.ADMIN_EMAILS)
     .split(",")
-    .map((email) => email.trim().toLowerCase())
+    .map((email) => normalizeEnvValue(email).toLowerCase())
     .filter(Boolean);
 }
 
 app.post("/api/admin/login", (req, res) => {
   const { email, password } = req.body ?? {};
   const adminEmails = getAdminEmails();
-  const adminPassword = process.env.ADMIN_PASSWORD || "";
+  const adminPassword = normalizeEnvValue(process.env.ADMIN_PASSWORD);
 
   if (!adminEmails.length || !adminPassword) {
     return res.status(503).json({ error: "Admin authentication is not configured on the server." });
   }
 
-  const normalizedEmail = String(email || "").trim().toLowerCase();
-  if (adminEmails.includes(normalizedEmail) && password === adminPassword) {
+  const normalizedEmail = normalizeEnvValue(String(email || "")).toLowerCase();
+  const normalizedPassword = normalizeEnvValue(String(password || ""));
+  if (adminEmails.includes(normalizedEmail) && normalizedPassword === adminPassword) {
     return res.json({ success: true });
   }
 
