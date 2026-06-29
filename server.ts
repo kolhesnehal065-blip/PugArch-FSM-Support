@@ -555,9 +555,11 @@ function fallbackClassify(message: string): { matchedCode: string; confidence: n
 // ── API Routes ───────────────────────────────────────────────────────────────
 
 // API Health Check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", time: new Date().toISOString() });
-});
+app.get("/api/health", asyncHandler(async (req, res) => {
+  await dbService.testConnection();
+  const { path: _path, ...database } = dbService.getInfo();
+  res.json({ status: "ok", time: new Date().toISOString(), database });
+}));
 
 function normalizeEnvValue(value: string | undefined): string {
   return (value || "").trim().replace(/^['"]|['"]$/g, "");

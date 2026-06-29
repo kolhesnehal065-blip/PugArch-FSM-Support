@@ -1,14 +1,21 @@
 import fs from "fs";
 import path from "path";
+import dotenv from "dotenv";
 import pg from "pg";
 import type { Pool as PgPool } from "pg";
 import type { AuditLog, ChatMessage, SupportStaff, Ticket, User } from "../shared/types.js";
 
+dotenv.config();
+
 const LEGACY_DB_PATH = path.join(process.cwd(), "server-db.json");
 const { Pool } = pg;
 
+function normalizeEnvValue(value: string | undefined): string {
+  return (value || "").trim().replace(/^['"]|['"]$/g, "");
+}
+
 function getDatabaseUrl(): string {
-  return process.env.DATABASE_URL?.trim() || "";
+  return normalizeEnvValue(process.env.DATABASE_URL);
 }
 
 function isPostgresUrl(databaseUrl = getDatabaseUrl()): boolean {
@@ -20,7 +27,7 @@ function getDatabasePath(): string {
     return path.join("/tmp", "pugarch.db");
   }
 
-  const databaseUrl = process.env.DATABASE_URL?.trim();
+  const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
     return path.join(process.cwd(), "dev.db");
   }
@@ -35,6 +42,7 @@ function getDatabasePath(): string {
 
 const DB_PATH = getDatabasePath();
 const USE_POSTGRES = isPostgresUrl();
+const SSL_UNSUPPORTED_MESSAGE = "does not support SSL connections";
 type SQLiteDatabase = import("node:sqlite").DatabaseSync;
 type SQLiteModule = typeof import("node:sqlite");
 
@@ -358,17 +366,59 @@ async function getPostgresPool(): Promise<PgPool> {
 
   if (!postgresReady) {
     postgresReady = (async () => {
-      const pool = new Pool({
-        connectionString: getDatabaseUrl(),
-        ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false },
-      });
-      await initializePostgres(pool);
-      postgresPool = pool;
-      return pool;
+      const databaseUrl = getDatabaseUrl();
+      const ssl = getPostgresSslConfig(databaseUrl);
+      const pool = new Pool({ connectionString: databaseUrl, ssl });
+
+      try {
+        await initializePostgres(pool);
+        postgresPool = pool;
+        return pool;
+      } catch (error: any) {
+        await pool.end().catch(() => undefined);
+        if (ssl && !isPostgresSslExplicitlyRequired(databaseUrl) && String(error?.message || "").includes(SSL_UNSUPPORTED_MESSAGE)) {
+          console.warn("[Database] Postgres rejected SSL; retrying connection without SSL. Add ?sslmode=require if your database requires SSL.");
+          const fallbackPool = new Pool({ connectionString: databaseUrl, ssl: false });
+          await initializePostgres(fallbackPool);
+          postgresPool = fallbackPool;
+          return fallbackPool;
+        }
+
+        throw error;
+      }
     })();
   }
 
   return postgresReady;
+}
+
+function getPostgresSslMode(databaseUrl: string): string {
+  return normalizeEnvValue(process.env.PGSSLMODE).toLowerCase() || getPostgresUrlSslMode(databaseUrl);
+}
+
+function getPostgresUrlSslMode(databaseUrl: string): string {
+  try {
+    return new URL(databaseUrl).searchParams.get("sslmode")?.toLowerCase() || "";
+  } catch {
+    return "";
+  }
+}
+
+function isPostgresSslExplicitlyRequired(databaseUrl: string): boolean {
+  return ["require", "verify-ca", "verify-full", "no-verify"].includes(getPostgresSslMode(databaseUrl));
+}
+
+function getPostgresSslConfig(databaseUrl: string): false | { rejectUnauthorized: false } {
+  const sslMode = getPostgresSslMode(databaseUrl);
+  if (sslMode === "disable") {
+    return false;
+  }
+
+  if (isPostgresSslExplicitlyRequired(databaseUrl) || process.env.VERCEL || process.env.NODE_ENV === "production") {
+    return { rejectUnauthorized: false };
+  }
+
+  return false;
 }
 
 async function initializePostgres(pool: PgPool) {
@@ -652,6 +702,24 @@ async function addAuditLog(action: string, userId: string, userName: string) {
 }
 
 export const dbService = {
+  getInfo() {
+    return {
+      mode: USE_POSTGRES ? "postgres" : "sqlite",
+      configured: USE_POSTGRES || Boolean(getDatabaseUrl()),
+      path: USE_POSTGRES ? undefined : DB_PATH,
+    };
+  },
+
+  async testConnection(): Promise<void> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      await pool.query("SELECT 1");
+      return;
+    }
+
+    await getDatabase();
+  },
+
   async getUsers(): Promise<User[]> {
     if (USE_POSTGRES) {
       const pool = await getPostgresPool();
