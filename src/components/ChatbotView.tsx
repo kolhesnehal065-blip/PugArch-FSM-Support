@@ -32,6 +32,22 @@ function formatIssueResponse(title: string, solution: string): string {
   return `### ${title}\n\n${solution}`;
 }
 
+async function parseTicketResponse(res: Response): Promise<any> {
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return res.json();
+  }
+
+  const text = await res.text();
+  return { error: text || `Request failed with status ${res.status}` };
+}
+
+function getTicketErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message
+    ? `Ticket creation failed: ${error.message}`
+    : "Ticket creation failed. Please try again.";
+}
+
 // Predefined issues and fields to collect for interactive ticket creation
 const ISSUE_FIELDS: Record<string, { key: string; label: string; prompt: Record<string, string>; type: string }[]> = {
   A1: [
@@ -409,7 +425,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
         })
       });
 
-      const newTicket = await res.json();
+      const newTicket = await parseTicketResponse(res);
       if (!res.ok) {
         throw new Error(newTicket.error || "Failed to create ticket");
       }
@@ -433,7 +449,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     } catch (err) {
       console.error("Failed to submit ticket:", err);
       setIsTyping(false);
-      pushMessage("bot", "An error occurred while creating your ticket. Please verify your internet connection and try again.");
+      pushMessage("bot", getTicketErrorMessage(err));
     }
   };
 
@@ -925,7 +941,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
         })
       });
 
-      const newTicket = await res.json();
+      const newTicket = await parseTicketResponse(res);
       if (!res.ok) {
         throw new Error(newTicket.error || "Failed to create ticket");
       }
@@ -960,7 +976,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     } catch (err) {
       console.error("Failed to submit ticket:", err);
       setIsTyping(false);
-      pushMessage("bot", "An error occurred while creating your ticket. Please verify your internet connection and try again.");
+      pushMessage("bot", getTicketErrorMessage(err));
     }
   };
 
