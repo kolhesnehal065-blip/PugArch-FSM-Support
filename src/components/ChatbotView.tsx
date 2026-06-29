@@ -830,15 +830,21 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     }
 
     const messageToSend = inputText.trim();
+    const imageToSend = attachedImage;
     setInputText("");
+    setAttachedImage(null);
 
     if (messageToSend) {
       pushMessage("user", messageToSend);
     }
 
+    if (imageToSend) {
+      pushMessage("user", selectedLanguage === "en" ? "Attached Photo" : "फोटो संलग्न", "image", imageToSend);
+    }
+
     setIsTyping(true);
 
-    if (currentCategory === "F" && messageToSend) {
+    if (currentCategory === "F" && messageToSend && !imageToSend) {
       try {
         const res = await fetch("/api/chat/message", {
           method: "POST",
@@ -879,10 +885,8 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     }
 
     // If there's an image screenshot attached
-    if (attachedImage) {
-      const ocrBase64 = attachedImage;
-      setAttachedImage(null);
-      pushMessage("user", selectedLanguage === "en" ? "Attached Photo" : "फोटो संलग्न", "image", ocrBase64);
+    if (imageToSend) {
+      const ocrBase64 = imageToSend;
       setIsAnalyzingImage(true);
 
       try {
