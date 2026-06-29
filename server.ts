@@ -1,9 +1,6 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
-import { createServer as createViteServer } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
 import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
 import { dbService } from "./src/server/db.js";
@@ -1349,6 +1346,12 @@ if (isVercel) {
 async function startServer() {
   if (!isVercel) {
     if (process.env.NODE_ENV !== "production") {
+      const [{ createServer: createViteServer }, { default: react }, { default: tailwindcss }] = await Promise.all([
+        import("vite"),
+        import("@vitejs/plugin-react"),
+        import("@tailwindcss/vite"),
+      ]);
+
       const vite = await createViteServer({
         configFile: false,
         root: process.cwd(),
