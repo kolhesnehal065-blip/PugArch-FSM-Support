@@ -878,35 +878,6 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                               )}
                             </div>
 
-                            {/* Section 5: Technician Details */}
-                            <div className="bg-slate-50/50 border border-slate-200/60 rounded-xl p-3.5 space-y-2.5">
-                              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200/60 pb-2">
-                                Current Dispatch Parameters
-                              </h4>
-                              <div className="grid grid-cols-2 gap-3 text-xs">
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Assigned Technician</span>
-                                  <span className="font-semibold text-slate-800">{selectedTicket.assignedStaffName || "Unassigned"}</span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Technician Status</span>
-                                  <span className="font-semibold text-slate-800 capitalize">{selectedTicket.status}</span>
-                                </div>
-                                <div className="col-span-2">
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Technician Notes (Internal)</span>
-                                  <p className="text-slate-700 italic bg-white p-2 rounded-lg border border-slate-200/60 text-[11px] whitespace-pre-wrap min-h-[40px]">
-                                    {techNotes[selectedTicket.id] || "No internal diagnostic technician notes recorded."}
-                                  </p>
-                                </div>
-                                <div className="col-span-2">
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Resolution Notes (Public)</span>
-                                  <p className="text-slate-700 italic bg-white p-2 rounded-lg border border-slate-200/60 text-[11px] whitespace-pre-wrap min-h-[40px]">
-                                    {selectedTicket.resolutionNotes || "No resolution details recorded yet."}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-
                             {/* Section 6: Action Controls */}
                             <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl space-y-3">
                               <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200/60 pb-1.5 flex items-center gap-1">

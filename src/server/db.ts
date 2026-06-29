@@ -9,6 +9,10 @@ dotenv.config();
 
 const LEGACY_DB_PATH = path.join(process.cwd(), "server-db.json");
 const { Pool } = pg;
+const IS_VERCEL = Boolean(process.env.VERCEL);
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const IS_DEPLOYED_RUNTIME = IS_VERCEL || IS_PRODUCTION;
+const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
 function normalizeEnvValue(value: string | undefined): string {
   return (value || "").trim().replace(/^['"]|['"]$/g, "");
@@ -22,11 +26,63 @@ function isPostgresUrl(databaseUrl = getDatabaseUrl()): boolean {
   return /^(postgres|postgresql):\/\//i.test(databaseUrl);
 }
 
-function getDatabasePath(): string {
-  if (process.env.VERCEL) {
-    return path.join("/tmp", "pugarch.db");
+function isFileDatabaseUrl(databaseUrl = getDatabaseUrl()): boolean {
+  return /^file:/i.test(databaseUrl);
+}
+
+function getPostgresUrlHost(databaseUrl: string): string {
+  try {
+    return new URL(databaseUrl).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function redactDatabaseUrl(databaseUrl = getDatabaseUrl()): string | undefined {
+  if (!databaseUrl) {
+    return undefined;
   }
 
+  if (isFileDatabaseUrl(databaseUrl)) {
+    return "file:***";
+  }
+
+  try {
+    const parsed = new URL(databaseUrl);
+    if (parsed.password) parsed.password = "***";
+    if (parsed.username) parsed.username = "***";
+    return parsed.toString();
+  } catch {
+    return "***";
+  }
+}
+
+function validateDatabaseConfiguration(): void {
+  const databaseUrl = getDatabaseUrl();
+
+  if (IS_DEPLOYED_RUNTIME) {
+    if (!databaseUrl) {
+      throw new Error(
+        "DATABASE_URL is required in production/Vercel. Set it to your remote Postgres connection string in Vercel Project Settings."
+      );
+    }
+
+    if (!isPostgresUrl(databaseUrl)) {
+      throw new Error(
+        "DATABASE_URL must be a postgres:// or postgresql:// connection string in production/Vercel. SQLite/file databases are only supported locally."
+      );
+    }
+
+    const host = getPostgresUrlHost(databaseUrl);
+    if (!host || LOCAL_DB_HOSTS.has(host)) {
+      throw new Error(
+        `DATABASE_URL points to ${host || "an invalid host"}, which is not reachable from Vercel. Use a remote Postgres host from Neon, Supabase, Railway, Vercel Postgres, or another cloud provider.`
+      );
+    }
+  }
+}
+
+function getDatabasePath(): string {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
     return path.join(process.cwd(), "dev.db");
@@ -39,6 +95,8 @@ function getDatabasePath(): string {
 
   return path.isAbsolute(databaseUrl) ? databaseUrl : path.resolve(process.cwd(), databaseUrl);
 }
+
+validateDatabaseConfiguration();
 
 const DB_PATH = getDatabasePath();
 const USE_POSTGRES = isPostgresUrl();
@@ -367,8 +425,15 @@ async function getPostgresPool(): Promise<PgPool> {
   if (!postgresReady) {
     postgresReady = (async () => {
       const databaseUrl = getDatabaseUrl();
+      validateDatabaseConfiguration();
       const ssl = getPostgresSslConfig(databaseUrl);
-      const pool = new Pool({ connectionString: databaseUrl, ssl });
+      const pool = new Pool({
+        connectionString: databaseUrl,
+        ssl,
+        max: IS_DEPLOYED_RUNTIME ? 5 : 10,
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 10_000,
+      });
 
       try {
         await initializePostgres(pool);
@@ -376,9 +441,15 @@ async function getPostgresPool(): Promise<PgPool> {
         return pool;
       } catch (error: any) {
         await pool.end().catch(() => undefined);
-        if (ssl && !isPostgresSslExplicitlyRequired(databaseUrl) && String(error?.message || "").includes(SSL_UNSUPPORTED_MESSAGE)) {
+        if (!IS_DEPLOYED_RUNTIME && ssl && !isPostgresSslExplicitlyRequired(databaseUrl) && String(error?.message || "").includes(SSL_UNSUPPORTED_MESSAGE)) {
           console.warn("[Database] Postgres rejected SSL; retrying connection without SSL. Add ?sslmode=require if your database requires SSL.");
-          const fallbackPool = new Pool({ connectionString: databaseUrl, ssl: false });
+          const fallbackPool = new Pool({
+            connectionString: databaseUrl,
+            ssl: false,
+            max: 10,
+            idleTimeoutMillis: 30_000,
+            connectionTimeoutMillis: 10_000,
+          });
           await initializePostgres(fallbackPool);
           postgresPool = fallbackPool;
           return fallbackPool;
@@ -414,7 +485,7 @@ function getPostgresSslConfig(databaseUrl: string): false | { rejectUnauthorized
     return false;
   }
 
-  if (isPostgresSslExplicitlyRequired(databaseUrl) || process.env.VERCEL || process.env.NODE_ENV === "production") {
+  if (isPostgresSslExplicitlyRequired(databaseUrl) || IS_DEPLOYED_RUNTIME) {
     return { rejectUnauthorized: false };
   }
 
@@ -703,9 +774,13 @@ async function addAuditLog(action: string, userId: string, userName: string) {
 
 export const dbService = {
   getInfo() {
+    const databaseUrl = getDatabaseUrl();
     return {
       mode: USE_POSTGRES ? "postgres" : "sqlite",
-      configured: USE_POSTGRES || Boolean(getDatabaseUrl()),
+      configured: Boolean(databaseUrl),
+      url: redactDatabaseUrl(databaseUrl),
+      host: USE_POSTGRES ? getPostgresUrlHost(databaseUrl) : undefined,
+      ssl: USE_POSTGRES ? getPostgresSslConfig(databaseUrl) !== false : undefined,
       path: USE_POSTGRES ? undefined : DB_PATH,
     };
   },

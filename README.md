@@ -68,7 +68,7 @@ This builds the React frontend and bundles the Express server into `dist/server.
    | `ADMIN_EMAILS` | Yes | e.g. `admin@example.com` |
    | `ADMIN_PASSWORD` | Yes | Strong password for admin login |
    | `APP_URL` | Yes | Your Vercel URL, e.g. `https://your-app.vercel.app` |
-   | `DATABASE_URL` | Yes | Persistent Postgres database URL. Required for ticket history/status updates on Vercel |
+   | `DATABASE_URL` | Yes | Remote Postgres URL, for example Neon/Supabase/Railway/Vercel Postgres. Must not point to `localhost` or `127.0.0.1` |
    | `SMTP_*` / `SUPPORT_ALERT_EMAIL` | No | Enable email alerts. For Gmail, use a Google App Password, not your normal account password |
 
 5. Deploy.
@@ -77,7 +77,7 @@ This builds the React frontend and bundles the Express server into `dist/server.
 
 - The frontend is served as static files from `dist/`.
 - API routes are handled by the Express server as a serverless function.
-- SQLite uses `/tmp` on Vercel only as a fallback and is **ephemeral** (resets on cold starts). For production ticket history, set `DATABASE_URL` to a Postgres URL such as Vercel Postgres, Neon, Supabase, or Railway.
+- SQLite is local-development only. On Vercel, `DATABASE_URL` is required and must be a remote `postgres://` or `postgresql://` URL. Use `?sslmode=require` for cloud providers that require SSL.
 - SMTP variables must be named `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS`. The server also accepts the common typo `SMPT_*` as a temporary alias and logs a warning.
 
 ## Deploy to GitHub

@@ -594,6 +594,20 @@ function getEnvValue(name: string, aliases: string[] = []): string {
   return "";
 }
 
+function getAppUrl(): string {
+  const configuredUrl = getEnvValue("APP_URL");
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  const vercelUrl = getEnvValue("VERCEL_URL");
+  if (vercelUrl) {
+    return `https://${vercelUrl.replace(/^https?:\/\//i, "")}`;
+  }
+
+  return "http://localhost:3000";
+}
+
 function cleanString(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
@@ -1032,7 +1046,7 @@ app.post("/api/tickets", async (req, res) => {
           </div>
 
           <div style="margin-top: 30px; text-align: center;">
-            <a href="${process.env.APP_URL || "http://localhost:3000"}" style="background-color: #D32F2F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Open Admin Dashboard</a>
+            <a href="${getAppUrl()}" style="background-color: #D32F2F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Open Admin Dashboard</a>
           </div>
         </div>
       </div>
