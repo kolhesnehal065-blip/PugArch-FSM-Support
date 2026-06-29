@@ -36,7 +36,7 @@ WhatsApp-style support chatbot with Gemini AI, screenshot OCR, voice transcripti
    | `ADMIN_EMAILS` | Comma-separated admin login emails |
    | `ADMIN_PASSWORD` | Admin dashboard password |
 
-   Optional variables for email notifications: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SUPPORT_ALERT_EMAIL`, `APP_URL`.
+   Optional variables for email notifications: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SUPPORT_ALERT_EMAIL`, `APP_URL`.
 
 3. Start the dev server:
 
@@ -68,7 +68,8 @@ This builds the React frontend and bundles the Express server into `dist/server.
    | `ADMIN_EMAILS` | Yes | e.g. `admin@example.com` |
    | `ADMIN_PASSWORD` | Yes | Strong password for admin login |
    | `APP_URL` | Yes | Your Vercel URL, e.g. `https://your-app.vercel.app` |
-   | `SMTP_*` / `SUPPORT_ALERT_EMAIL` | No | Enable email alerts |
+   | `DATABASE_URL` | Yes | Persistent Postgres database URL. Required for ticket history/status updates on Vercel |
+   | `SMTP_*` / `SUPPORT_ALERT_EMAIL` | No | Enable email alerts. For Gmail, use a Google App Password, not your normal account password |
 
 5. Deploy.
 
@@ -76,7 +77,8 @@ This builds the React frontend and bundles the Express server into `dist/server.
 
 - The frontend is served as static files from `dist/`.
 - API routes are handled by the Express server as a serverless function.
-- SQLite uses `/tmp` on Vercel, so data is **ephemeral** (resets on cold starts). For persistent storage in production, use an external database and set `DATABASE_URL`.
+- SQLite uses `/tmp` on Vercel only as a fallback and is **ephemeral** (resets on cold starts). For production ticket history, set `DATABASE_URL` to a Postgres URL such as Vercel Postgres, Neon, Supabase, or Railway.
+- SMTP variables must be named `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS`. The server also accepts the common typo `SMPT_*` as a temporary alias and logs a warning.
 
 ## Deploy to GitHub
 

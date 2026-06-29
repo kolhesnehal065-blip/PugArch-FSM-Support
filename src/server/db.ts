@@ -1,9 +1,19 @@
 import fs from "fs";
 import path from "path";
-import { DatabaseSync } from "node:sqlite";
+import pg from "pg";
+import type { Pool as PgPool } from "pg";
 import { AuditLog, ChatMessage, SupportStaff, Ticket, User } from "../shared/types";
 
 const LEGACY_DB_PATH = path.join(process.cwd(), "server-db.json");
+const { Pool } = pg;
+
+function getDatabaseUrl(): string {
+  return process.env.DATABASE_URL?.trim() || "";
+}
+
+function isPostgresUrl(databaseUrl = getDatabaseUrl()): boolean {
+  return /^(postgres|postgresql):\/\//i.test(databaseUrl);
+}
 
 function getDatabasePath(): string {
   if (process.env.VERCEL) {
@@ -24,6 +34,9 @@ function getDatabasePath(): string {
 }
 
 const DB_PATH = getDatabasePath();
+const USE_POSTGRES = isPostgresUrl();
+type SQLiteDatabase = import("node:sqlite").DatabaseSync;
+type SQLiteModule = typeof import("node:sqlite");
 
 interface LegacyDBStructure {
   users: User[];
@@ -253,13 +266,33 @@ const SEED_AUDIT_LOGS: AuditLog[] = [
   },
 ];
 
-let database: DatabaseSync | null = null;
+let database: SQLiteDatabase | null = null;
+let sqliteReady: Promise<SQLiteModule> | null = null;
+let postgresPool: PgPool | null = null;
+let postgresReady: Promise<PgPool> | null = null;
 
-function getDatabase(): DatabaseSync {
+async function getSqliteModule(): Promise<SQLiteModule> {
+  if (!sqliteReady) {
+    sqliteReady = import("node:sqlite").catch((error) => {
+      throw new Error(
+        `SQLite is unavailable in this runtime. Set DATABASE_URL to a Postgres URL for production deployments. ${error?.message || error}`
+      );
+    });
+  }
+
+  return sqliteReady;
+}
+
+async function getDatabase(): Promise<SQLiteDatabase> {
+  if (USE_POSTGRES) {
+    throw new Error("SQLite database requested while DATABASE_URL points to Postgres.");
+  }
+
   if (database) {
     return database;
   }
 
+  const { DatabaseSync } = await getSqliteModule();
   database = new DatabaseSync(DB_PATH);
   database.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -314,7 +347,84 @@ function getDatabase(): DatabaseSync {
   return database;
 }
 
-function countRows(db: DatabaseSync, tableName: string): number {
+async function getPostgresPool(): Promise<PgPool> {
+  if (!USE_POSTGRES) {
+    throw new Error("Postgres database requested without a postgres DATABASE_URL.");
+  }
+
+  if (postgresPool) {
+    return postgresPool;
+  }
+
+  if (!postgresReady) {
+    postgresReady = (async () => {
+      const pool = new Pool({
+        connectionString: getDatabaseUrl(),
+        ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false },
+      });
+      await initializePostgres(pool);
+      postgresPool = pool;
+      return pool;
+    })();
+  }
+
+  return postgresReady;
+}
+
+async function initializePostgres(pool: PgPool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      phone TEXT NOT NULL UNIQUE,
+      designation TEXT NOT NULL,
+      "companyName" TEXT NOT NULL,
+      "createdAt" TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS staff (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      phone TEXT NOT NULL UNIQUE,
+      password TEXT,
+      status TEXT NOT NULL CHECK(status IN ('active', 'inactive')),
+      "createdAt" TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tickets (
+      id TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "userName" TEXT NOT NULL,
+      "userEmail" TEXT NOT NULL,
+      "userPhone" TEXT NOT NULL,
+      category TEXT NOT NULL,
+      "issueCode" TEXT NOT NULL,
+      "issueTitle" TEXT NOT NULL,
+      conversation TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'assigned', 'closed')),
+      "assignedStaffId" TEXT,
+      "assignedStaffName" TEXT,
+      "resolutionNotes" TEXT,
+      language TEXT NOT NULL,
+      "createdAt" TEXT NOT NULL,
+      "closedAt" TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "userName" TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+  `);
+
+  await seedPostgresIfNeeded(pool);
+}
+
+function countRows(db: SQLiteDatabase, tableName: string): number {
   const row = db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as { count: number } | undefined;
   return row?.count ?? 0;
 }
@@ -342,7 +452,7 @@ function readLegacyDatabase(): LegacyDBStructure | null {
   }
 }
 
-function seedDatabaseIfNeeded(db: DatabaseSync) {
+function seedDatabaseIfNeeded(db: SQLiteDatabase) {
   const hasData = countRows(db, "users") > 0 || countRows(db, "staff") > 0 || countRows(db, "tickets") > 0 || countRows(db, "audit_logs") > 0;
   if (hasData) {
     return;
@@ -395,6 +505,92 @@ function seedDatabaseIfNeeded(db: DatabaseSync) {
   }
 }
 
+async function countPostgresRows(pool: PgPool, tableName: string): Promise<number> {
+  const result = await pool.query(`SELECT COUNT(*)::int AS count FROM ${tableName}`);
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function seedPostgresIfNeeded(pool: PgPool) {
+  const hasData =
+    (await countPostgresRows(pool, "users")) > 0 ||
+    (await countPostgresRows(pool, "staff")) > 0 ||
+    (await countPostgresRows(pool, "tickets")) > 0 ||
+    (await countPostgresRows(pool, "audit_logs")) > 0;
+  if (hasData) {
+    return;
+  }
+
+  const legacy = readLegacyDatabase();
+  const source = legacy ?? {
+    users: SEED_USERS,
+    staff: DEFAULT_STAFF,
+    tickets: SEED_TICKETS,
+    auditLogs: SEED_AUDIT_LOGS,
+  };
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const user of source.users) {
+      await client.query(
+        `INSERT INTO users (id, name, email, phone, designation, "companyName", "createdAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO NOTHING`,
+        [user.id, user.name, user.email, user.phone, user.designation, user.companyName, user.createdAt]
+      );
+    }
+    for (const staff of source.staff) {
+      await client.query(
+        `INSERT INTO staff (id, name, email, phone, password, status, "createdAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO NOTHING`,
+        [staff.id, staff.name, staff.email, staff.phone, staff.password ?? null, staff.status, staff.createdAt]
+      );
+    }
+    for (const ticket of source.tickets) {
+      await client.query(
+        `INSERT INTO tickets (
+          id, "userId", "userName", "userEmail", "userPhone", category, "issueCode", "issueTitle",
+          conversation, status, "assignedStaffId", "assignedStaffName", "resolutionNotes", language, "createdAt", "closedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (id) DO NOTHING`,
+        [
+          ticket.id,
+          ticket.userId,
+          ticket.userName,
+          ticket.userEmail,
+          ticket.userPhone,
+          ticket.category,
+          ticket.issueCode,
+          ticket.issueTitle,
+          serializeConversation(ticket.conversation ?? []),
+          ticket.status,
+          ticket.assignedStaffId,
+          ticket.assignedStaffName,
+          ticket.resolutionNotes,
+          ticket.language,
+          ticket.createdAt,
+          ticket.closedAt,
+        ]
+      );
+    }
+    for (const auditLog of source.auditLogs) {
+      await client.query(
+        `INSERT INTO audit_logs (id, action, "userId", "userName", timestamp)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (id) DO NOTHING`,
+        [auditLog.id, auditLog.action, auditLog.userId, auditLog.userName, auditLog.timestamp]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function serializeConversation(conversation: ChatMessage[]): string {
   return JSON.stringify(conversation ?? []);
 }
@@ -437,8 +633,18 @@ function makeId(prefix: string): string {
   return `${prefix}-${Math.floor(100000 + Math.random() * 900000)}`;
 }
 
-function addAuditLog(action: string, userId: string, userName: string) {
-  const db = getDatabase();
+async function addAuditLog(action: string, userId: string, userName: string) {
+  if (USE_POSTGRES) {
+    const pool = await getPostgresPool();
+    await pool.query(
+      `INSERT INTO audit_logs (id, action, "userId", "userName", timestamp)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [makeId("AUD"), action, userId, userName, new Date().toISOString()]
+    );
+    return;
+  }
+
+  const db = await getDatabase();
   db.prepare(
     `INSERT INTO audit_logs (id, action, userId, userName, timestamp)
      VALUES (?, ?, ?, ?, ?)`
@@ -446,13 +652,46 @@ function addAuditLog(action: string, userId: string, userName: string) {
 }
 
 export const dbService = {
-  getUsers(): User[] {
-    const db = getDatabase();
+  async getUsers(): Promise<User[]> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const result = await pool.query(`SELECT * FROM users ORDER BY "createdAt" DESC`);
+      return result.rows as User[];
+    }
+
+    const db = await getDatabase();
     return db.prepare(`SELECT * FROM users ORDER BY createdAt DESC`).all() as unknown as User[];
   },
 
-  addUser(user: Omit<User, "id" | "createdAt">): User {
-    const db = getDatabase();
+  async addUser(user: Omit<User, "id" | "createdAt">): Promise<User> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const existing = await pool.query<User>(
+        `SELECT * FROM users WHERE lower(email) = lower($1) OR phone = $2 LIMIT 1`,
+        [user.email, user.phone]
+      );
+
+      if (existing.rows[0]) {
+        return existing.rows[0];
+      }
+
+      const newUser: User = {
+        ...user,
+        id: makeId("USR"),
+        createdAt: new Date().toISOString(),
+      };
+
+      await pool.query(
+        `INSERT INTO users (id, name, email, phone, designation, "companyName", "createdAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [newUser.id, newUser.name, newUser.email, newUser.phone, newUser.designation, newUser.companyName, newUser.createdAt]
+      );
+
+      await addAuditLog(`Created user profile for ${user.name} (${user.email})`, "SYSTEM", "System");
+      return newUser;
+    }
+
+    const db = await getDatabase();
     const existing = db
       .prepare(`SELECT * FROM users WHERE lower(email) = lower(?) OR phone = ? LIMIT 1`)
       .get(user.email, user.phone) as unknown as User | undefined;
@@ -472,17 +711,41 @@ export const dbService = {
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(newUser.id, newUser.name, newUser.email, newUser.phone, newUser.designation, newUser.companyName, newUser.createdAt);
 
-    addAuditLog(`Created user profile for ${user.name} (${user.email})`, "SYSTEM", "System");
+    await addAuditLog(`Created user profile for ${user.name} (${user.email})`, "SYSTEM", "System");
     return newUser;
   },
 
-  getStaff(): SupportStaff[] {
-    const db = getDatabase();
+  async getStaff(): Promise<SupportStaff[]> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const result = await pool.query(`SELECT * FROM staff ORDER BY "createdAt" DESC`);
+      return result.rows as SupportStaff[];
+    }
+
+    const db = await getDatabase();
     return db.prepare(`SELECT * FROM staff ORDER BY createdAt DESC`).all() as unknown as SupportStaff[];
   },
 
-  addStaff(staff: Omit<SupportStaff, "id" | "createdAt">): SupportStaff {
-    const db = getDatabase();
+  async addStaff(staff: Omit<SupportStaff, "id" | "createdAt">): Promise<SupportStaff> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const newStaff: SupportStaff = {
+        ...staff,
+        id: makeId("STF"),
+        createdAt: new Date().toISOString(),
+      };
+
+      await pool.query(
+        `INSERT INTO staff (id, name, email, phone, password, status, "createdAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [newStaff.id, newStaff.name, newStaff.email, newStaff.phone, newStaff.password ?? null, newStaff.status, newStaff.createdAt]
+      );
+
+      await addAuditLog(`Added support staff member: ${staff.name}`, "SYSTEM", "System");
+      return newStaff;
+    }
+
+    const db = await getDatabase();
     const newStaff: SupportStaff = {
       ...staff,
       id: makeId("STF"),
@@ -502,12 +765,37 @@ export const dbService = {
       newStaff.createdAt
     );
 
-    addAuditLog(`Added support staff member: ${staff.name}`, "SYSTEM", "System");
+    await addAuditLog(`Added support staff member: ${staff.name}`, "SYSTEM", "System");
     return newStaff;
   },
 
-  updateStaff(id: string, staffData: Partial<SupportStaff>): SupportStaff {
-    const db = getDatabase();
+  async updateStaff(id: string, staffData: Partial<SupportStaff>): Promise<SupportStaff> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const existingResult = await pool.query<SupportStaff>(`SELECT * FROM staff WHERE id = $1`, [id]);
+      const existing = existingResult.rows[0];
+      if (!existing) {
+        throw new Error("Support staff not found");
+      }
+
+      const updated: SupportStaff = {
+        ...existing,
+        ...staffData,
+        password: staffData.password ?? existing.password,
+      };
+
+      await pool.query(
+        `UPDATE staff
+         SET name = $1, email = $2, phone = $3, password = $4, status = $5
+         WHERE id = $6`,
+        [updated.name, updated.email, updated.phone, updated.password ?? null, updated.status, id]
+      );
+
+      await addAuditLog(`Updated staff member details for ${updated.name}`, "SYSTEM", "System");
+      return updated;
+    }
+
+    const db = await getDatabase();
     const existing = db.prepare(`SELECT * FROM staff WHERE id = ?`).get(id) as unknown as SupportStaff | undefined;
     if (!existing) {
       throw new Error("Support staff not found");
@@ -532,35 +820,102 @@ export const dbService = {
       id
     );
 
-    addAuditLog(`Updated staff member details for ${updated.name}`, "SYSTEM", "System");
+    await addAuditLog(`Updated staff member details for ${updated.name}`, "SYSTEM", "System");
     return updated;
   },
 
-  deleteStaff(id: string): void {
-    const db = getDatabase();
+  async deleteStaff(id: string): Promise<void> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const staffResult = await pool.query<SupportStaff>(`SELECT * FROM staff WHERE id = $1`, [id]);
+      const staff = staffResult.rows[0];
+      if (!staff) {
+        return;
+      }
+
+      await pool.query(`DELETE FROM staff WHERE id = $1`, [id]);
+      await addAuditLog(`Deleted staff member: ${staff.name}`, "SYSTEM", "System");
+      return;
+    }
+
+    const db = await getDatabase();
     const staff = db.prepare(`SELECT * FROM staff WHERE id = ?`).get(id) as unknown as SupportStaff | undefined;
     if (!staff) {
       return;
     }
 
     db.prepare(`DELETE FROM staff WHERE id = ?`).run(id);
-    addAuditLog(`Deleted staff member: ${staff.name}`, "SYSTEM", "System");
+    await addAuditLog(`Deleted staff member: ${staff.name}`, "SYSTEM", "System");
   },
 
-  getTickets(): Ticket[] {
-    const db = getDatabase();
+  async getTickets(): Promise<Ticket[]> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const result = await pool.query(`SELECT * FROM tickets ORDER BY "createdAt" DESC`);
+      return result.rows.map(mapTicketRow);
+    }
+
+    const db = await getDatabase();
     const rows = db.prepare(`SELECT * FROM tickets ORDER BY createdAt DESC`).all() as unknown as any[];
     return rows.map(mapTicketRow);
   },
 
-  getTicketById(id: string): Ticket | undefined {
-    const db = getDatabase();
+  async getTicketById(id: string): Promise<Ticket | undefined> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const result = await pool.query(`SELECT * FROM tickets WHERE id = $1`, [id]);
+      return result.rows[0] ? mapTicketRow(result.rows[0]) : undefined;
+    }
+
+    const db = await getDatabase();
     const row = db.prepare(`SELECT * FROM tickets WHERE id = ?`).get(id) as unknown as any | undefined;
     return row ? mapTicketRow(row) : undefined;
   },
 
-  addTicket(ticketData: Omit<Ticket, "id" | "createdAt" | "closedAt">): Ticket {
-    const db = getDatabase();
+  async addTicket(ticketData: Omit<Ticket, "id" | "createdAt" | "closedAt">): Promise<Ticket> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const newTicket: Ticket = {
+        ...ticketData,
+        id: makeId("TIC"),
+        createdAt: new Date().toISOString(),
+        closedAt: null,
+      };
+
+      await pool.query(
+        `INSERT INTO tickets (
+          id, "userId", "userName", "userEmail", "userPhone", category, "issueCode", "issueTitle",
+          conversation, status, "assignedStaffId", "assignedStaffName", "resolutionNotes", language, "createdAt", "closedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [
+          newTicket.id,
+          newTicket.userId,
+          newTicket.userName,
+          newTicket.userEmail,
+          newTicket.userPhone,
+          newTicket.category,
+          newTicket.issueCode,
+          newTicket.issueTitle,
+          serializeConversation(newTicket.conversation),
+          newTicket.status,
+          newTicket.assignedStaffId,
+          newTicket.assignedStaffName,
+          newTicket.resolutionNotes,
+          newTicket.language,
+          newTicket.createdAt,
+          newTicket.closedAt,
+        ]
+      );
+
+      await addAuditLog(
+        `Ticket ${newTicket.id} raised by ${newTicket.userName} (${newTicket.issueTitle})`,
+        "SYSTEM",
+        "System"
+      );
+      return newTicket;
+    }
+
+    const db = await getDatabase();
     const newTicket: Ticket = {
       ...ticketData,
       id: makeId("TIC"),
@@ -592,7 +947,7 @@ export const dbService = {
       newTicket.closedAt
     );
 
-    addAuditLog(
+    await addAuditLog(
       `Ticket ${newTicket.id} raised by ${newTicket.userName} (${newTicket.issueTitle})`,
       "SYSTEM",
       "System"
@@ -600,9 +955,69 @@ export const dbService = {
     return newTicket;
   },
 
-  updateTicket(id: string, updates: Partial<Ticket>, operatorId = "SYSTEM", operatorName = "System"): Ticket {
-    const db = getDatabase();
-    const previous = this.getTicketById(id);
+  async updateTicket(id: string, updates: Partial<Ticket>, operatorId = "SYSTEM", operatorName = "System"): Promise<Ticket> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const previous = await this.getTicketById(id);
+      if (!previous) {
+        throw new Error("Ticket not found");
+      }
+
+      const definedUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([, value]) => value !== undefined)
+      ) as Partial<Ticket>;
+
+      const updated: Ticket = {
+        ...previous,
+        ...definedUpdates,
+      };
+
+      if (updates.status === "closed" && previous.status !== "closed") {
+        updated.closedAt = new Date().toISOString();
+      }
+
+      await pool.query(
+        `UPDATE tickets
+         SET "userId" = $1, "userName" = $2, "userEmail" = $3, "userPhone" = $4,
+             category = $5, "issueCode" = $6, "issueTitle" = $7, conversation = $8,
+             status = $9, "assignedStaffId" = $10, "assignedStaffName" = $11,
+             "resolutionNotes" = $12, language = $13, "createdAt" = $14, "closedAt" = $15
+         WHERE id = $16`,
+        [
+          updated.userId,
+          updated.userName,
+          updated.userEmail,
+          updated.userPhone,
+          updated.category,
+          updated.issueCode,
+          updated.issueTitle,
+          serializeConversation(updated.conversation),
+          updated.status,
+          updated.assignedStaffId,
+          updated.assignedStaffName,
+          updated.resolutionNotes,
+          updated.language,
+          updated.createdAt,
+          updated.closedAt,
+          id,
+        ]
+      );
+
+      let action = `Updated ticket ${id}`;
+      if (updates.status && updates.status !== previous.status) {
+        action = `Ticket ${id} status updated from '${previous.status}' to '${updates.status}'`;
+      } else if (updates.assignedStaffId && updates.assignedStaffId !== previous.assignedStaffId) {
+        action = `Ticket ${id} assigned to ${updates.assignedStaffName}`;
+      } else if (updates.resolutionNotes) {
+        action = `Ticket ${id} resolved with notes`;
+      }
+
+      await addAuditLog(action, operatorId, operatorName);
+      return updated;
+    }
+
+    const db = await getDatabase();
+    const previous = await this.getTicketById(id);
     if (!previous) {
       throw new Error("Ticket not found");
     }
@@ -654,18 +1069,24 @@ export const dbService = {
       action = `Ticket ${id} resolved with notes`;
     }
 
-    addAuditLog(action, operatorId, operatorName);
+    await addAuditLog(action, operatorId, operatorName);
     return updated;
   },
 
-  getAuditLogs(): AuditLog[] {
-    const db = getDatabase();
+  async getAuditLogs(): Promise<AuditLog[]> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const result = await pool.query(`SELECT * FROM audit_logs ORDER BY timestamp DESC`);
+      return result.rows as AuditLog[];
+    }
+
+    const db = await getDatabase();
     return db
       .prepare(`SELECT * FROM audit_logs ORDER BY timestamp DESC`)
       .all() as unknown as AuditLog[];
   },
 
-  addAuditLog(action: string, userId: string, userName: string) {
-    addAuditLog(action, userId, userName);
+  async addAuditLog(action: string, userId: string, userName: string) {
+    await addAuditLog(action, userId, userName);
   },
 };

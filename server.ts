@@ -17,6 +17,12 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+const asyncHandler =
+  (handler: express.RequestHandler): express.RequestHandler =>
+  (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
+
 // Set up JSON body parser with increased limit for base64 images and audio
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
@@ -147,10 +153,10 @@ function isValidEmailAddress(email: string | undefined | null): boolean {
 }
 
 function getSmtpConfig() {
-  const host = (process.env.SMTP_HOST || "smtp.gmail.com").trim();
-  const port = Number.parseInt(process.env.SMTP_PORT || "587", 10);
-  const user = (process.env.SMTP_USER || "").trim();
-  const pass = (process.env.SMTP_PASS || "").replace(/\s+/g, "").trim();
+  const host = getEnvValue("SMTP_HOST", ["SMPT_HOST"]) || "smtp.gmail.com";
+  const port = Number.parseInt(getEnvValue("SMTP_PORT", ["SMPT_PORT"]) || "587", 10);
+  const user = getEnvValue("SMTP_USER", ["SMPT_USER"]);
+  const pass = getEnvValue("SMTP_PASS", ["SMPT_PASS"]).replace(/\s+/g, "");
 
   return {
     host,
@@ -196,6 +202,15 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   ]);
 }
 
+function shouldVerifySmtpConnection(): boolean {
+  const configured = getEnvValue("SMTP_VERIFY");
+  if (configured) {
+    return configured.toLowerCase() === "true";
+  }
+
+  return !process.env.VERCEL;
+}
+
 async function getMailTransporter(attemptId = "SMTP"): Promise<nodemailer.Transporter> {
   if (!mailTransporter) {
     const config = getSmtpConfig();
@@ -209,9 +224,9 @@ async function getMailTransporter(attemptId = "SMTP"): Promise<nodemailer.Transp
           port: config.port,
           secure: config.secure,
           auth: { user: config.user, pass: config.pass },
-          connectionTimeout: 10000,
-          greetingTimeout: 10000,
-          socketTimeout: 15000,
+          connectionTimeout: 5000,
+          greetingTimeout: 5000,
+          socketTimeout: 8000,
           tls: {
             rejectUnauthorized: false
           }
@@ -230,10 +245,10 @@ async function getMailTransporter(attemptId = "SMTP"): Promise<nodemailer.Transp
     }
   }
 
-  if (mailTransporter && !mailTransporterVerified) {
+  if (mailTransporter && !mailTransporterVerified && shouldVerifySmtpConnection()) {
     try {
       console.log(`[SMTP:${attemptId}] Verifying SMTP connection/authentication.`);
-      await withTimeout(mailTransporter.verify(), 12000, "SMTP verify");
+      await withTimeout(mailTransporter.verify(), 5000, "SMTP verify");
       mailTransporterVerified = true;
       console.log(`[SMTP:${attemptId}] Transporter verified successfully.`);
     } catch (error) {
@@ -243,6 +258,11 @@ async function getMailTransporter(attemptId = "SMTP"): Promise<nodemailer.Transp
       throw error;
     }
   }
+
+  if (mailTransporter && !shouldVerifySmtpConnection()) {
+    mailTransporterVerified = true;
+  }
+
   return mailTransporter;
 }
 
@@ -306,7 +326,7 @@ async function sendEmailSafe(to: string, subject: string, htmlContent: string, c
 
   try {
     const transporter = await getMailTransporter(attemptId);
-    const sender = process.env.SMTP_USER?.trim();
+    const sender = getEnvValue("SMTP_FROM", ["MAIL_FROM"]) || getEnvValue("SMTP_USER", ["SMPT_USER"]);
     if (!sender) {
       throw new Error("SMTP_USER is not configured.");
     }
@@ -318,7 +338,7 @@ async function sendEmailSafe(to: string, subject: string, htmlContent: string, c
         subject,
         html: htmlContent,
       }),
-      15000,
+      8000,
       `SMTP send to ${to}`
     );
 
@@ -544,6 +564,23 @@ app.get("/api/health", (req, res) => {
 
 function normalizeEnvValue(value: string | undefined): string {
   return (value || "").trim().replace(/^['"]|['"]$/g, "");
+}
+
+function getEnvValue(name: string, aliases: string[] = []): string {
+  const value = normalizeEnvValue(process.env[name]);
+  if (value) {
+    return value;
+  }
+
+  for (const alias of aliases) {
+    const aliasValue = normalizeEnvValue(process.env[alias]);
+    if (aliasValue) {
+      console.warn(`[Config] Using ${alias} as an alias for ${name}. Rename it to ${name} in production settings when convenient.`);
+      return aliasValue;
+    }
+  }
+
+  return "";
 }
 
 function getAdminEmails(): string[] {
@@ -851,10 +888,10 @@ Return ONLY the raw JSON. No markdown wrappers.`;
 });
 
 // 4. Ticket Management Routes
-app.get("/api/tickets", (req, res) => {
-  const tickets = dbService.getTickets();
+app.get("/api/tickets", asyncHandler(async (req, res) => {
+  const tickets = await dbService.getTickets();
   res.json(tickets);
-});
+}));
 
 app.post("/api/tickets", async (req, res) => {
   const {
@@ -881,7 +918,7 @@ app.post("/api/tickets", async (req, res) => {
 
   try {
     // 1. Ensure user profile exists (prevents duplicates, links using userId)
-    const user = dbService.addUser({
+    const user = await dbService.addUser({
       name,
       email: email.trim(),
       phone: phone.trim(),
@@ -890,7 +927,7 @@ app.post("/api/tickets", async (req, res) => {
     });
 
     // 2. Create ticket
-    const ticket = dbService.addTicket({
+    const ticket = await dbService.addTicket({
       userId: user.id,
       userName: user.name,
       userEmail: user.email,
@@ -922,7 +959,6 @@ app.post("/api/tickets", async (req, res) => {
       .join("");
 
     // A. Send Admin Alert Email
-    const adminAlertEmail = process.env.SUPPORT_ALERT_EMAIL?.trim();
     const adminEmailSubject = `🚨 [URGENT SUPPORT ALERT] New Ticket ${ticket.id} Created`;
     const adminEmailBody = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #E0E0E0; border-radius: 8px; overflow: hidden;">
@@ -959,9 +995,10 @@ app.post("/api/tickets", async (req, res) => {
         </div>
       </div>
     `;
-    const emailResults: EmailSendResult[] = [];
+    const emailJobs: Promise<EmailSendResult>[] = [];
+    const adminAlertEmail = getEnvValue("SUPPORT_ALERT_EMAIL");
     if (adminAlertEmail) {
-      emailResults.push(await sendEmailSafe(adminAlertEmail, adminEmailSubject, adminEmailBody, `ticket-create:${ticket.id}:admin-alert`));
+      emailJobs.push(sendEmailSafe(adminAlertEmail, adminEmailSubject, adminEmailBody, `ticket-create:${ticket.id}:admin-alert`));
     }
 
     // B. Send User Email Confirmation
@@ -991,7 +1028,8 @@ app.post("/api/tickets", async (req, res) => {
         </div>
       </div>
     `;
-    emailResults.push(await sendEmailSafe(ticket.userEmail, userEmailSubject, userEmailBody, `ticket-create:${ticket.id}:user-confirmation`));
+    emailJobs.push(sendEmailSafe(ticket.userEmail, userEmailSubject, userEmailBody, `ticket-create:${ticket.id}:user-confirmation`));
+    const emailResults = await Promise.all(emailJobs);
     logEmailDispatchSummary(emailResults, `ticket-create:${ticket.id}`);
 
     res.status(201).json({ ...ticket, emailDispatch: summarizeEmailDispatch(emailResults) });
@@ -1007,12 +1045,12 @@ app.put("/api/tickets/:id", async (req, res) => {
   const { status, assignedStaffId, assignedStaffName, resolutionNotes, operatorId, operatorName } = req.body;
 
   try {
-    const existingTicket = dbService.getTicketById(id);
+    const existingTicket = await dbService.getTicketById(id);
     if (!existingTicket) {
       return res.status(404).json({ error: "Ticket not found" });
     }
 
-    const updatedTicket = dbService.updateTicket(
+    const updatedTicket = await dbService.updateTicket(
       id,
       {
         ...(status !== undefined ? { status } : {}),
@@ -1055,7 +1093,7 @@ app.put("/api/tickets/:id", async (req, res) => {
 
     // C. Notify Assigned Staff member
     if (assignedStaffId) {
-      const staff = dbService.getStaff().find((s) => s.id === assignedStaffId);
+      const staff = (await dbService.getStaff()).find((s) => s.id === assignedStaffId);
       if (staff && staff.email) {
         const staffEmailSubject = `📥 [Assigned Ticket] Ticket ID ${id} assigned to you`;
         const staffEmailBody = `
@@ -1118,18 +1156,18 @@ app.put("/api/tickets/:id", async (req, res) => {
 });
 
 // 5. User Management Routes
-app.get("/api/users", (req, res) => {
-  const users = dbService.getUsers();
+app.get("/api/users", asyncHandler(async (req, res) => {
+  const users = await dbService.getUsers();
   res.json(users);
-});
+}));
 
 // 6. Support Staff CRUD Routes
-app.get("/api/staff", (req, res) => {
-  const staff = dbService.getStaff();
+app.get("/api/staff", asyncHandler(async (req, res) => {
+  const staff = await dbService.getStaff();
   res.json(staff);
-});
+}));
 
-app.post("/api/staff", (req, res) => {
+app.post("/api/staff", async (req, res) => {
   const { name, email, phone, status } = req.body;
   if (!name || !email || !phone) {
     return res.status(400).json({ error: "Name, email, and phone are required" });
@@ -1140,7 +1178,7 @@ app.post("/api/staff", (req, res) => {
     return res.status(400).json({ error: emailError || phoneError });
   }
   try {
-    const newStaff = dbService.addStaff({
+    const newStaff = await dbService.addStaff({
       name: name.trim(),
       email: email.trim(),
       phone: phone.trim(),
@@ -1155,7 +1193,7 @@ app.post("/api/staff", (req, res) => {
   }
 });
 
-app.put("/api/staff/:id", (req, res) => {
+app.put("/api/staff/:id", async (req, res) => {
   const { id } = req.params;
   const { name, email, phone, status } = req.body;
   const emailError = validateEmailAddress(email);
@@ -1164,7 +1202,7 @@ app.put("/api/staff/:id", (req, res) => {
     return res.status(400).json({ error: !name ? "Technician Name is required." : emailError || phoneError });
   }
   try {
-    const updated = dbService.updateStaff(id, { name: name.trim(), email: email.trim(), phone: phone.trim(), status });
+    const updated = await dbService.updateStaff(id, { name: name.trim(), email: email.trim(), phone: phone.trim(), status });
     res.json(updated);
   } catch (err: any) {
     if (err?.code === "SQLITE_CONSTRAINT_UNIQUE") {
@@ -1174,10 +1212,10 @@ app.put("/api/staff/:id", (req, res) => {
   }
 });
 
-app.delete("/api/staff/:id", (req, res) => {
+app.delete("/api/staff/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    dbService.deleteStaff(id);
+    await dbService.deleteStaff(id);
     res.json({ success: true });
   } catch (err: any) {
     res.status(404).json({ error: err.message });
@@ -1185,8 +1223,8 @@ app.delete("/api/staff/:id", (req, res) => {
 });
 
 app.post("/api/email/test", async (req, res) => {
-  const configuredRecipient = (process.env.SUPPORT_ALERT_EMAIL || process.env.SMTP_USER || "").trim();
-  const recipient = (req.body?.to || configuredRecipient).trim();
+  const configuredRecipient = getEnvValue("SUPPORT_ALERT_EMAIL") || getEnvValue("SMTP_USER", ["SMPT_USER"]);
+  const recipient = normalizeEnvValue(req.body?.to || configuredRecipient);
   const subject = `PugArch FSM SMTP Test - ${new Date().toISOString()}`;
 
   const html = `
@@ -1213,15 +1251,15 @@ app.post("/api/email/test", async (req, res) => {
 });
 
 // 7. Audit Log Route
-app.get("/api/audit-logs", (req, res) => {
-  const logs = dbService.getAuditLogs();
+app.get("/api/audit-logs", asyncHandler(async (req, res) => {
+  const logs = await dbService.getAuditLogs();
   res.json(logs);
-});
+}));
 
 // 8. Dynamic Live Analytics Endpoint
-app.get("/api/analytics", (req, res) => {
-  const tickets = dbService.getTickets();
-  const staff = dbService.getStaff();
+app.get("/api/analytics", asyncHandler(async (req, res) => {
+  const tickets = await dbService.getTickets();
+  const staff = await dbService.getStaff();
 
   const total = tickets.length;
   const pending = tickets.filter((t) => t.status === "pending").length;
@@ -1286,7 +1324,7 @@ app.get("/api/analytics", (req, res) => {
     ],
     staffLoad,
   });
-});
+}));
 
 function registerErrorHandler() {
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
