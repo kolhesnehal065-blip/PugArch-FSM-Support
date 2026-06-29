@@ -303,6 +303,18 @@ function summarizeEmailDispatch(results: EmailSendResult[]) {
   };
 }
 
+function queueEmailDispatch(emailJobs: Promise<EmailSendResult>[], context: string) {
+  if (emailJobs.length === 0) {
+    return;
+  }
+
+  Promise.all(emailJobs)
+    .then((results) => logEmailDispatchSummary(results, context))
+    .catch((error) => {
+      console.error(`[SMTP:${context}] Unexpected background email dispatch failure:`, formatSmtpError(error));
+    });
+}
+
 // Helper to send emails with explicit SMTP stage/result logging.
 async function sendEmailSafe(to: string, subject: string, htmlContent: string, context = "general"): Promise<EmailSendResult> {
   const attemptId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -580,6 +592,31 @@ function getEnvValue(name: string, aliases: string[] = []): string {
   }
 
   return "";
+}
+
+function cleanString(value: unknown, fallback = ""): string {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function normalizeConversation(value: unknown): ChatMessage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((message): ChatMessage => {
+    const sender = message?.sender === "bot" || message?.sender === "staff" ? message.sender : "user";
+    return {
+      sender,
+      message: cleanString(message?.message, ""),
+      timestamp: cleanString(message?.timestamp, new Date().toISOString()),
+      ...(message?.type ? { type: message.type } : {}),
+      ...(message?.mediaUrl ? { mediaUrl: message.mediaUrl } : {}),
+    };
+  });
+}
+
+function isUniqueConstraintError(error: any): boolean {
+  return error?.code === "SQLITE_CONSTRAINT_UNIQUE" || error?.code === "23505";
 }
 
 function getAdminEmails(): string[] {
@@ -905,12 +942,18 @@ app.post("/api/tickets", async (req, res) => {
     language,
   } = req.body;
 
-  if (!name || !phone || !issueTitle) {
-    return res.status(400).json({ error: "Missing required fields for ticket creation" });
+  const userName = cleanString(name);
+  const userPhone = cleanString(phone);
+  const userEmail = cleanString(email);
+  const normalizedIssueCode = cleanString(issueCode, "NONE");
+  const normalizedIssueTitle = cleanString(issueTitle, "Unresolved technical issue");
+
+  if (!userName || !userPhone || !normalizedIssueTitle) {
+    return res.status(400).json({ error: "Full name, contact number, and issue title are required." });
   }
 
-  const emailError = validateEmailAddress(email);
-  const phoneError = validateContactNumber(phone);
+  const emailError = validateEmailAddress(userEmail);
+  const phoneError = validateContactNumber(userPhone);
   if (emailError || phoneError) {
     return res.status(400).json({ error: emailError || phoneError });
   }
@@ -918,11 +961,11 @@ app.post("/api/tickets", async (req, res) => {
   try {
     // 1. Ensure user profile exists (prevents duplicates, links using userId)
     const user = await dbService.addUser({
-      name,
-      email: email.trim(),
-      phone: phone.trim(),
-      designation: designation || "Field Worker",
-      companyName: companyName || "PugArch Client",
+      name: userName,
+      email: userEmail,
+      phone: userPhone,
+      designation: cleanString(designation, "Field Worker"),
+      companyName: cleanString(companyName, "PugArch Client"),
     });
 
     // 2. Create ticket
@@ -931,15 +974,15 @@ app.post("/api/tickets", async (req, res) => {
       userName: user.name,
       userEmail: user.email,
       userPhone: user.phone,
-      category: issueCode !== "NONE" ? (ISSUES[issueCode]?.category || "General Support") : "General Escalation",
-      issueCode: issueCode || "NONE",
-      issueTitle: issueTitle,
-      conversation: conversation || [],
+      category: normalizedIssueCode !== "NONE" ? (ISSUES[normalizedIssueCode]?.category || "General Support") : "General Escalation",
+      issueCode: normalizedIssueCode,
+      issueTitle: normalizedIssueTitle,
+      conversation: normalizeConversation(conversation),
       status: "pending",
       assignedStaffId: null,
       assignedStaffName: null,
       resolutionNotes: null,
-      language: language || "en",
+      language: cleanString(language, "en"),
     });
 
     // ── HTML Email Generation & Alerting ─────────────────────────────────────
@@ -950,7 +993,7 @@ app.post("/api/tickets", async (req, res) => {
         msg.sender === "user" ? "#E3F2FD" : msg.sender === "bot" ? "#F5F5F5" : "#E8F5E9"
       };">
         <strong>${msg.sender === "user" ? "End User" : msg.sender === "bot" ? "Chatbot" : "Support Staff"}:</strong>
-        <p style="margin: 4px 0 0 0; font-family: sans-serif; font-size: 14px;">${msg.message.replace(/\n/g, "<br/>")}</p>
+        <p style="margin: 4px 0 0 0; font-family: sans-serif; font-size: 14px;">${cleanString(msg.message).replace(/\n/g, "<br/>")}</p>
         <span style="font-size: 11px; color: #757575;">${new Date(msg.timestamp).toLocaleString()}</span>
       </div>
     `
@@ -1028,13 +1071,21 @@ app.post("/api/tickets", async (req, res) => {
       </div>
     `;
     emailJobs.push(sendEmailSafe(ticket.userEmail, userEmailSubject, userEmailBody, `ticket-create:${ticket.id}:user-confirmation`));
-    const emailResults = await Promise.all(emailJobs);
-    logEmailDispatchSummary(emailResults, `ticket-create:${ticket.id}`);
+    queueEmailDispatch(emailJobs, `ticket-create:${ticket.id}`);
 
-    res.status(201).json({ ...ticket, emailDispatch: summarizeEmailDispatch(emailResults) });
-  } catch (err) {
+    res.status(201).json({
+      ...ticket,
+      emailDispatch: {
+        attempted: emailJobs.length,
+        status: "queued",
+      },
+    });
+  } catch (err: any) {
     console.error("Error creating ticket:", err);
-    res.status(500).json({ error: "Failed to generate ticket" });
+    if (isUniqueConstraintError(err)) {
+      return res.status(409).json({ error: "A user with this email or contact number already exists with different details." });
+    }
+    res.status(500).json({ error: err?.message || "Failed to generate ticket" });
   }
 });
 
