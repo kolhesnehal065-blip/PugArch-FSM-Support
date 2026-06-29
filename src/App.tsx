@@ -25,7 +25,7 @@ export default function App() {
   }
 
   return (
-    <div className="bg-slate-100 min-h-screen">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-slate-100">
       <ChatbotView 
         onAdminLoginClick={() => setShowLoginModal(true)} 
       />

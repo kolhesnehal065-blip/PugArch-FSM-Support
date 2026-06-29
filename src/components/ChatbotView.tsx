@@ -1107,31 +1107,31 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
   };
 
   return (
-    <div id="chatbot-container" className="flex flex-col h-screen max-w-lg mx-auto bg-slate-50 border-x border-slate-200 relative shadow-2xl overflow-hidden font-sans">
+    <div id="chatbot-container" className="relative flex h-[100dvh] w-full max-w-full flex-col overflow-hidden overflow-x-hidden bg-slate-50 font-sans shadow-2xl sm:mx-auto sm:max-w-2xl sm:border-x sm:border-slate-200 lg:max-w-3xl xl:max-w-4xl">
       {/* ── Chat Header ── */}
-      <header className="bg-white border-b border-slate-100 p-4 flex items-center justify-between sticky top-0 z-20 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center font-bold text-lg text-blue-600 border border-blue-200/50 shadow-sm">
+      <header className="sticky top-0 z-20 flex items-center justify-between gap-2 sm:gap-3 border-b border-slate-100 bg-white p-2.5 sm:p-3 lg:p-4 shadow-sm">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center font-bold text-base sm:text-lg text-blue-600 border border-blue-200/50 shadow-sm">
             🐾
           </div>
-          <div>
-            <h1 className="font-bold tracking-tight text-sm text-slate-800">{t[selectedLanguage].title}</h1>
-            <span className="text-[10px] text-green-500 font-medium flex items-center gap-1 mt-0.5">
+          <div className="min-w-0">
+            <h1 className="truncate font-bold tracking-tight text-xs sm:text-sm text-slate-800">{t[selectedLanguage].title}</h1>
+            <span className="text-[9px] sm:text-[10px] text-green-500 font-medium flex items-center gap-1 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
               Online Now
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           {/* Language Picker */}
           <button 
             onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 hover:text-slate-800 relative"
+            className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 hover:text-slate-800 relative"
             title="Select Language"
             id="lang-selector-btn"
           >
-            <Globe className="w-5 h-5" />
+            <Globe className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
           {/* Ticket History */}
@@ -1140,30 +1140,30 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
               setShowHistoryView(true);
               syncUserTicketsWithServer();
             }}
-            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 hover:text-slate-800 relative"
+            className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 hover:text-slate-800 relative"
             title="Ticket History"
             id="history-view-btn"
           >
-            <History className="w-5 h-5" />
+            <History className="w-4 h-4 sm:w-5 sm:h-5" />
             {userTickets.length > 0 && (
-              <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-white"></span>
+              <span className="absolute top-0.5 right-0.5 sm:top-1 sm:right-1 w-2 h-2 sm:w-2.5 sm:h-2.5 bg-red-500 rounded-full border border-white"></span>
             )}
           </button>
 
           {/* Secret Admin Button */}
           <button 
             onClick={onAdminLoginClick}
-            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-700"
+            className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-700"
             title="Admin Login"
             id="admin-login-link"
           >
-            <Lock className="w-4 h-4" />
+            <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
         </div>
       </header>
 
       {/* ── Main Chat Area ── */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col scroll-smooth bg-[#F0F2F5]">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 sm:p-3 lg:p-4 space-y-3 sm:space-y-4 flex flex-col scroll-smooth bg-[#F0F2F5]">
         {messages.map((msg, index) => {
           const isUser = msg.sender === "user";
           return (
@@ -1175,7 +1175,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
               className={`flex ${isUser ? "justify-end" : "justify-start"}`}
             >
               <div 
-                className={`max-w-[85%] p-3.5 rounded-2xl shadow-sm text-sm leading-relaxed ${
+                className={`max-w-[90%] break-words p-2.5 text-[11px] leading-relaxed shadow-sm sm:max-w-[92%] sm:p-3 sm:text-xs lg:max-w-[85%] lg:p-3.5 lg:text-sm rounded-2xl ${
                   isUser 
                     ? "bg-blue-600 text-white rounded-tr-none" 
                     : "bg-white text-slate-700 rounded-tl-none border border-slate-100/50"
@@ -1218,13 +1218,13 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-slate-200/80 rounded-2xl p-4 space-y-3 shadow-sm"
+            className="bg-white border border-slate-200/80 rounded-2xl p-3 sm:p-4 space-y-3 shadow-sm overflow-hidden"
           >
             <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
               <Info className="w-3.5 h-3.5 text-slate-400" />
               {t[selectedLanguage].selectIssue}
             </h4>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:gap-3">
               {categories.map((cat) => {
                 let badgeStyle = "bg-blue-50 text-blue-600 border border-blue-100";
                 let IconComp = UserIcon;
@@ -1253,7 +1253,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                   <button
                     key={cat.code}
                     onClick={() => handleCategorySelect(cat.code)}
-                    className="bg-white p-3.5 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-slate-50 cursor-pointer flex flex-col gap-3 shadow-sm transition-all text-left group"
+                    className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-slate-50 cursor-pointer flex flex-col gap-3 shadow-sm transition-all text-left group"
                   >
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${badgeStyle} transition-transform group-hover:scale-105`}>
                       <IconComp className="w-4 h-4" />
@@ -1273,9 +1273,9 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2 shadow-sm"
+            className="bg-white border border-slate-200 rounded-2xl p-2.5 sm:p-3 lg:p-4 space-y-2 shadow-sm overflow-hidden"
           >
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between gap-3 mb-2">
               <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 {getCategoryPanelLabel("subProblems")}
               </h4>
@@ -1291,17 +1291,17 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                 <button
                   key={sub.code}
                   onClick={() => handleSubIssueSelect(sub.code)}
-                  className="w-full text-left p-3 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-all text-xs font-medium text-slate-800 flex items-center justify-between"
+                  className="w-full text-left p-3 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-all text-xs font-medium text-slate-800 flex items-center justify-between gap-2"
                 >
-                  <span>{getSubIssueTitle(sub.code)}</span>
+                  <span className="min-w-0 break-words">{getSubIssueTitle(sub.code)}</span>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                 </button>
               ))}
               <button
                 onClick={() => handleCategorySelect("F", getCategoryPanelLabel("notListed"))}
-                className="w-full text-left p-3 rounded-xl border border-dashed border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-all text-xs text-slate-600 flex items-center justify-between"
+                className="w-full text-left p-3 rounded-xl border border-dashed border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-all text-xs text-slate-600 flex items-center justify-between gap-2"
               >
-                <span>{getCategoryPanelLabel("notListed")}</span>
+                <span className="min-w-0 break-words">{getCategoryPanelLabel("notListed")}</span>
                 <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
               </button>
             </div>
@@ -1313,7 +1313,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-blue-50 border border-blue-100 rounded-2xl p-4 space-y-3 shadow-sm text-center"
+            className="bg-blue-50 border border-blue-100 rounded-2xl p-3 sm:p-4 space-y-3 shadow-sm text-center overflow-hidden"
           >
             {awaitingFeedback === "NONE" ? (
               <>
@@ -1345,7 +1345,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
             ) : (
               <>
                 <p className="text-sm text-blue-900 font-medium">{t[selectedLanguage].wasHelpful}</p>
-                <div className="flex justify-center gap-4">
+                <div className="flex flex-wrap justify-center gap-2 sm:gap-3 lg:gap-4">
                   <button
                     onClick={() => handleFeedback(true)}
                     className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-xs font-semibold transition-transform active:scale-95 shadow-sm"
@@ -1369,7 +1369,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-red-100 rounded-2xl p-4 space-y-3 shadow-md"
+            className="bg-white border border-red-100 rounded-2xl p-3 sm:p-4 space-y-3 shadow-md overflow-hidden"
           >
             <div className="flex items-center gap-2 text-red-600 font-semibold text-sm border-b border-slate-100 pb-2">
               <AlertCircle className="w-4 h-4" />
@@ -1391,7 +1391,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block">Contact number *</label>
                   <div className="relative">
@@ -1435,7 +1435,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase font-bold tracking-wider text-slate-500 block">Designation</label>
                   <div className="relative">
@@ -1506,11 +1506,11 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
 
       {/* Attached Image Preview */}
       {attachedImage && (
-        <div className="bg-slate-100 p-2.5 border-t border-slate-200 flex items-center justify-between gap-3 px-4 animate-slideUp">
-          <div className="flex items-center gap-2">
-            <img src={attachedImage} alt="Attachment" className="w-10 h-10 object-cover rounded-lg border border-slate-300" />
-            <div>
-              <span className="text-xs font-semibold text-slate-800">Screenshot Attached</span>
+        <div className="bg-slate-100 p-2 sm:p-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-4 animate-slideUp">
+          <div className="flex min-w-0 items-center gap-2">
+            <img src={attachedImage} alt="Attachment" className="w-8 h-8 sm:w-10 sm:h-10 object-cover rounded-lg border border-slate-300" />
+            <div className="min-w-0">
+              <span className="text-[11px] sm:text-xs font-semibold text-slate-800">Screenshot Attached</span>
               <span className="block text-[9px] text-slate-500">Will be analyzed with Vision OCR on send</span>
             </div>
           </div>
@@ -1525,8 +1525,8 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
 
       {/* Interactive Support Information Collection Status Banner */}
       {collectingIssueCode && (
-        <div className="bg-blue-50 px-4 py-2.5 border-t border-blue-100 flex items-center justify-between gap-2 text-xs text-blue-700 font-medium animate-slideUp">
-          <span className="flex items-center gap-1.5">
+        <div className="bg-blue-50 px-2.5 sm:px-4 py-2 sm:py-2.5 border-t border-blue-100 flex flex-col gap-2 text-[11px] sm:text-xs text-blue-700 font-medium animate-slideUp sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex min-w-0 items-start gap-1.5">
             <Info className="w-4 h-4 text-blue-500" />
             <span>
               {selectedLanguage === "en" ? "Interactive Ticket Mode" : "इंटरैक्टिव टिकट मोड"} (Step {currentFieldIdx + 1} of {ISSUE_FIELDS[collectingIssueCode]?.length || 0}): <strong>{ISSUE_FIELDS[collectingIssueCode]?.[currentFieldIdx]?.label}</strong>
@@ -1539,7 +1539,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
               setCollectedData({});
               pushMessage("bot", selectedLanguage === "en" ? "Ticket generation cancelled. How else can I help you?" : "टिकट निर्माण रद्द कर दिया गया। मैं आपकी और क्या मदद कर सकता हूँ?");
             }}
-            className="text-red-500 hover:text-red-700 hover:underline font-semibold"
+            className="self-start text-red-500 hover:text-red-700 hover:underline font-semibold sm:self-auto"
           >
             Cancel
           </button>
@@ -1547,8 +1547,8 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
       )}
 
       {/* ── Chat Input Footer ── */}
-      <footer className="p-3 bg-white border-t border-slate-100 sticky bottom-0 z-10 flex items-center gap-2">
-        <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2 bg-slate-100 border border-transparent focus-within:border-blue-300 rounded-full px-4 py-2 transition-all focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100">
+      <footer className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-slate-100 bg-white p-2 sm:p-2.5 sm:flex-nowrap sm:p-3 overflow-hidden">
+        <form onSubmit={handleSendMessage} className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2 rounded-full border border-transparent bg-slate-100 px-2.5 py-2 sm:px-3 sm:py-2 lg:px-4 transition-all focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100">
           <button
             type="button"
             onClick={() => imageInputRef.current?.click()}
@@ -1556,7 +1556,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
             title="Attach Screenshot"
             id="attach-screenshot-btn"
           >
-            <ImageIcon className="w-5 h-5" />
+            <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
           <input
             type="file"
@@ -1572,16 +1572,16 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             disabled={awaitingEscalationForm}
-            className="flex-1 bg-transparent border-none text-xs outline-none text-slate-800 placeholder-slate-400 disabled:opacity-50"
+            className="min-w-0 flex-1 bg-transparent border-none text-[11px] sm:text-xs outline-none text-slate-800 placeholder-slate-400 disabled:opacity-50"
           />
 
           {inputText.trim() || attachedImage ? (
             <button
               type="submit"
-              className="p-2 bg-blue-600 text-white hover:bg-blue-500 rounded-full transition-all shadow-sm active:scale-95 flex items-center justify-center"
+              className="p-1.5 sm:p-2 bg-blue-600 text-white hover:bg-blue-500 rounded-full transition-all shadow-sm active:scale-95 flex items-center justify-center"
               id="send-msg-btn"
             >
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
             </button>
           ) : (
             <button
@@ -1595,7 +1595,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
               title="Voice Speech-to-Text"
               id="voice-mic-btn"
             >
-              {isRecording ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+              {isRecording ? <MicOff className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Mic className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
             </button>
           )}
         </form>
@@ -1610,7 +1610,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
             setCollectedData({});
             setShowCategories(true);
           }}
-          className="p-2.5 px-4 border border-slate-200 hover:border-blue-500 text-slate-700 font-bold rounded-full hover:bg-slate-50 text-xs transition-all flex items-center gap-1.5 active:scale-95 whitespace-nowrap"
+          className="min-h-9 sm:min-h-10 flex-1 justify-center p-2 px-2.5 sm:px-3 lg:px-4 border border-slate-200 hover:border-blue-500 text-slate-700 font-bold rounded-full hover:bg-slate-50 text-[11px] sm:text-xs transition-all flex items-center gap-1.5 active:scale-95 whitespace-nowrap sm:flex-none"
           id="menu-toggle-btn"
         >
           Categories
@@ -1633,7 +1633,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 350 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full bg-white rounded-t-3xl p-5 space-y-4 shadow-xl border-t border-slate-100"
+              className="w-full max-h-[85dvh] overflow-y-auto bg-white rounded-t-3xl p-3 sm:p-4 lg:p-5 space-y-3 sm:space-y-4 shadow-xl border-t border-slate-100"
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
@@ -1648,7 +1648,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 pb-4">
+              <div className="grid grid-cols-1 gap-2.5 sm:gap-3 pb-3 sm:pb-4 sm:grid-cols-2">
                 {[
                   { code: "en", label: "English", sub: "Global Language" },
                   { code: "hi", label: "हिंदी", sub: "Hindi" },
@@ -1691,18 +1691,18 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "tween", duration: 0.3 }}
-              className="w-full max-w-[90%] bg-white h-full flex flex-col shadow-2xl"
+              className="w-full max-w-full bg-white h-full flex flex-col shadow-2xl sm:max-w-md"
             >
-              <div className="p-4 bg-slate-900 text-white flex items-center justify-between sticky top-0">
+              <div className="sticky top-0 flex items-center justify-between gap-2 bg-slate-900 p-2.5 sm:p-3 lg:p-4 text-white">
                 <button 
                   onClick={() => setShowHistoryView(false)}
-                  className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white"
+                  className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-300 hover:text-white"
                 >
-                  <ArrowLeft className="w-4 h-4" />
+                  <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   Back
                 </button>
-                <h3 className="font-semibold text-sm flex items-center gap-1.5">
-                  <History className="w-4 h-4" />
+                <h3 className="min-w-0 truncate font-semibold text-xs sm:text-sm flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   {t[selectedLanguage].historyTitle}
                 </h3>
                 <div className="flex items-center gap-2">
@@ -1721,7 +1721,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
               </div>
 
               {/* Ticket List */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 sm:p-3 lg:p-4 space-y-3 sm:space-y-4 bg-slate-50">
                 {userTickets.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-64 text-center p-6">
                     <History className="w-12 h-12 text-slate-300 mb-2" />
@@ -1732,14 +1732,14 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                   userTickets.map((t) => (
                     <div 
                       key={t.id}
-                      className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm relative overflow-hidden space-y-3"
+                      className="bg-white border border-slate-200 rounded-2xl p-2.5 sm:p-3 lg:p-4 shadow-sm relative overflow-hidden space-y-3 w-full"
                     >
                       {/* Top Bar */}
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                        <span className="font-mono text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-lg">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                        <span className="font-mono text-[10px] sm:text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-lg break-all min-w-0">
                           {t.id}
                         </span>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase ${
+                        <span className={`text-[9px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-full uppercase shrink-0 ${
                           t.status === "closed" 
                             ? "bg-emerald-100 text-emerald-800 border border-emerald-200" 
                             : t.status === "assigned"
@@ -1751,12 +1751,12 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                       </div>
 
                       {/* Content */}
-                      <div>
+                      <div className="min-w-0">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Issue Summary</span>
-                        <h4 className="text-xs font-bold text-slate-800">{t.issueTitle}</h4>
+                        <h4 className="text-xs font-bold text-slate-800 break-words">{t.issueTitle}</h4>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                      <div className="grid grid-cols-1 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100 sm:grid-cols-2">
                         <div>
                           <span className="text-[9px] uppercase font-bold text-slate-400 block">Category</span>
                           <span className="font-medium text-slate-700">{t.category}</span>

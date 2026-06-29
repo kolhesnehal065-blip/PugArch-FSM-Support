@@ -38,6 +38,7 @@ import {
   Filter,
   Calendar,
   Download,
+  Menu,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { Ticket, User, SupportStaff, AuditLog } from "../shared/types";
@@ -60,6 +61,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "users" | "staff" | "audit" | "settings">(
     window.location.pathname.startsWith("/admin/tickets") ? "tickets" : "dashboard"
   );
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [ticketDetailId, setTicketDetailId] = useState<string | null>(getTicketIdFromPath);
   const ticketListScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -425,6 +427,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   const handleTabChange = (tab: typeof activeTab) => {
     setActiveTab(tab);
     setTicketDetailId(null);
+    setIsMobileNavOpen(false);
     if (tab === "tickets") {
       window.history.pushState({}, "", "/admin/tickets");
     } else if (window.location.pathname.startsWith("/admin/tickets")) {
@@ -462,7 +465,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
   if (ticketDetailId) {
     return (
-      <div className="min-h-screen bg-slate-100 p-4 text-slate-800 sm:p-6">
+      <div className="min-h-[100dvh] overflow-x-hidden bg-slate-100 p-3 text-slate-800 sm:p-6">
         <div className="mx-auto max-w-7xl">
           {currentTicketDetail ? (
             <TicketDetailsPage
@@ -482,7 +485,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
               onSaveStatus={(status, notes) => handleUpdateTicket(currentTicketDetail.id, status, notes)}
             />
           ) : (
-            <div className="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <div className="rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm sm:p-8">
               <button
                 type="button"
                 onClick={handleBackToTickets}
@@ -501,9 +504,17 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   }
 
   return (
-    <div className="flex h-screen bg-slate-100 text-slate-800 overflow-hidden font-sans">
+    <div className="flex h-[100dvh] bg-slate-100 text-slate-800 overflow-hidden font-sans">
       {/* ── Admin Sidebar Navigation ── */}
-      <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col h-full justify-between shrink-0">
+      {isMobileNavOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setIsMobileNavOpen(false)}
+          className="fixed inset-0 z-30 bg-slate-950/50 backdrop-blur-[1px] lg:hidden"
+        />
+      )}
+      <aside className={`fixed inset-y-0 left-0 z-40 flex h-full w-72 max-w-[85vw] shrink-0 transform flex-col justify-between border-r border-slate-800 bg-slate-950 transition-transform duration-300 ease-out lg:static lg:z-auto lg:w-64 lg:max-w-none lg:translate-x-0 ${isMobileNavOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div>
           {/* Logo Brand */}
           <div className="p-5 border-b border-slate-800 flex items-center gap-3">
@@ -571,39 +582,49 @@ export default function AdminView({ onLogout }: AdminViewProps) {
       {/* ── Main Workspace panel ── */}
       <main className="flex-1 flex flex-col min-w-0 bg-slate-100 overflow-hidden">
         {/* Workspace Header */}
-        <header className="h-16 border-b border-slate-200 bg-white px-6 flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-3">
-            <h2 className="font-bold text-md capitalize tracking-tight text-slate-800">{activeTab} Panel</h2>
+        <header className="min-h-14 sm:min-h-16 border-b border-slate-200 bg-white px-2.5 sm:px-3 py-2.5 sm:py-3 shadow-sm sm:px-6 sm:py-0">
+          <div className="flex flex-col gap-2 sm:gap-3 sm:h-14 sm:h-16 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setIsMobileNavOpen(true)}
+              className="inline-flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 lg:hidden"
+              aria-label="Open navigation"
+            >
+              <Menu className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            </button>
+            <h2 className="font-bold text-sm sm:text-md capitalize tracking-tight text-slate-800">{activeTab} Panel</h2>
             {isRefreshing ? (
-              <span className="text-xs text-slate-400 flex items-center gap-1">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span className="text-[10px] sm:text-xs text-slate-400 flex items-center gap-1">
+                <RefreshCw className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" />
                 Syncing database...
               </span>
             ) : (
               <button 
                 onClick={fetchAllData}
-                className="text-xs text-slate-400 hover:text-blue-600 flex items-center gap-1 transition-all"
+                className="text-[10px] sm:text-xs text-slate-400 hover:text-blue-600 flex items-center gap-1 transition-all"
                 title="Refresh database"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 Synced live
               </button>
             )}
           </div>
-          <div className="text-xs text-slate-500 font-mono">
-            System time: {new Date().toLocaleTimeString()}
+            <div className="text-[10px] sm:text-xs text-slate-500 font-mono sm:text-right">
+              System time: {new Date().toLocaleTimeString()}
+            </div>
           </div>
         </header>
 
         {/* Dynamic Inner Panel Viewports */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 lg:p-4 lg:p-6">
           <AnimatePresence mode="wait">
             
             {/* ── TAB 1: DASHBOARD & RECHARTS ── */}
             {activeTab === "dashboard" && (
               <div className="space-y-6">
                 {/* Metric Summary Grid */}
-                <div className="grid grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 gap-2.5 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 xl:gap-4">
                   {[
                     { label: "Total Tickets", val: metrics.totalTickets, icon: TicketIcon, textStyle: "text-slate-800" },
                     { label: "Pending", val: metrics.pendingTickets, icon: AlertTriangle, textStyle: "text-red-600" },
@@ -613,26 +634,26 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                   ].map((stat, i) => {
                     const StatIcon = stat.icon;
                     return (
-                      <div key={i} className="bg-white border border-slate-200/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                      <div key={i} className="bg-white border border-slate-200/80 p-3 sm:p-4 rounded-xl flex items-center justify-between gap-2 sm:gap-3 shadow-sm">
                         <div>
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">{stat.label}</span>
-                          <span className={`text-xl font-extrabold tracking-tight block ${stat.textStyle}`}>{stat.val}</span>
+                          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">{stat.label}</span>
+                          <span className={`text-lg sm:text-xl font-extrabold tracking-tight block ${stat.textStyle}`}>{stat.val}</span>
                         </div>
-                        <StatIcon className="w-5 h-5 text-blue-600 opacity-80" />
+                        <StatIcon className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 opacity-80" />
                       </div>
                     );
                   })}
                 </div>
 
                 {/* Live Charts Dashboard using Recharts */}
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:gap-6">
                   {/* Category Distribution Bar Chart */}
-                  <div className="bg-white border border-slate-200/80 p-5 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 mb-4 flex items-center gap-2">
-                      <Sliders className="w-4 h-4 text-blue-600" />
+                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm min-w-0">
+                    <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
+                      <Sliders className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                       Incoming Issues by Category
                     </h3>
-                    <div className="h-64">
+                    <div className="h-56 sm:h-64">
                       {analytics?.categoryDistribution?.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={analytics.categoryDistribution}>
@@ -650,15 +671,15 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                   </div>
 
                   {/* Ticket Status Distribution Pie Chart */}
-                  <div className="bg-white border border-slate-200/80 p-5 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 mb-4 flex items-center gap-2">
-                      <Sliders className="w-4 h-4 text-blue-600" />
+                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm min-w-0">
+                    <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
+                      <Sliders className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                       Operational Resolution Statuses
                     </h3>
-                    <div className="h-64 flex items-center">
+                    <div className="min-h-56 sm:min-h-64 flex items-center">
                       {analytics?.statusDistribution?.length > 0 ? (
-                        <div className="w-full flex">
-                          <div className="w-2/3 h-64">
+                        <div className="w-full flex flex-col gap-2.5 sm:gap-3 sm:flex-row">
+                          <div className="h-48 w-full sm:h-56 sm:h-64 sm:w-2/3">
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart>
                                 <Pie
@@ -678,10 +699,10 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                               </PieChart>
                             </ResponsiveContainer>
                           </div>
-                          <div className="w-1/3 flex flex-col justify-center space-y-3 pl-2">
+                          <div className="flex w-full flex-col justify-center space-y-2 sm:space-y-3 sm:w-1/3 sm:pl-2">
                             {analytics.statusDistribution.map((entry: any, index: number) => (
-                              <div key={index} className="flex items-center gap-2 text-xs">
-                                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: pieColors[index] }}></span>
+                              <div key={index} className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
+                                <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full" style={{ backgroundColor: pieColors[index] }}></span>
                                 <span className="text-slate-700 font-semibold">{entry.name}:</span>
                                 <span className="font-mono text-slate-500">{entry.value}</span>
                               </div>
@@ -696,21 +717,21 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                 </div>
 
                 {/* Bottom Staff Load list */}
-                <div className="bg-white border border-slate-200/80 p-5 rounded-xl shadow-sm">
-                  <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 mb-4 flex items-center gap-2">
-                    <UserCheck className="w-4 h-4 text-blue-600" />
+                <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm">
+                  <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
+                    <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                     Support Engineer Dispatch & Load Balancing
                   </h3>
-                  <div className="grid grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 gap-2.5 sm:gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
                     {analytics?.staffLoad?.map((staffItem: any, index: number) => (
-                      <div key={index} className="bg-slate-50 border border-slate-100 p-4 rounded-xl flex items-center justify-between">
+                      <div key={index} className="bg-slate-50 border border-slate-100 p-3 sm:p-4 rounded-xl flex items-center justify-between">
                         <div>
-                          <span className="font-bold text-xs text-slate-800 block">{staffItem.name}</span>
-                          <span className="text-[10px] text-slate-400 uppercase font-mono mt-0.5 block">Status: {staffItem.status}</span>
+                          <span className="font-bold text-[10px] sm:text-xs text-slate-800 block">{staffItem.name}</span>
+                          <span className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-mono mt-0.5 block">Status: {staffItem.status}</span>
                         </div>
                         <div className="text-right">
-                          <span className="text-lg font-black text-blue-600 block">{staffItem.tickets}</span>
-                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Active Tickets</span>
+                          <span className="text-base sm:text-lg font-black text-blue-600 block">{staffItem.tickets}</span>
+                          <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold uppercase tracking-wider">Active Tickets</span>
                         </div>
                       </div>
                     ))}
@@ -721,40 +742,40 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
             {/* ── TAB 2: TICKETS LIST ── */}
             {activeTab === "tickets" && (
-              <div className="h-[calc(100vh-10rem)]">
+              <div className="h-[calc(100dvh-8rem)] min-h-[24rem] sm:h-[calc(100dvh-9rem)] sm:min-h-[28rem]">
                 {/* Tickets list panel */}
-                <div className="bg-white border border-slate-200/80 rounded-xl p-4 flex flex-col shadow-sm overflow-hidden h-full">
-                  <div className="flex flex-col gap-3 mb-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-sm tracking-tight text-slate-800 flex items-center gap-2">
-                        <TicketIcon className="w-4 h-4 text-blue-600" />
+                <div className="bg-white border border-slate-200/80 rounded-xl p-2.5 sm:p-3 lg:p-4 flex flex-col shadow-sm overflow-hidden h-full">
+                  <div className="flex flex-col gap-2 sm:gap-3 mb-3 sm:mb-4">
+                    <div className="flex flex-col gap-1.5 sm:gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <h3 className="font-bold text-xs sm:text-sm tracking-tight text-slate-800 flex items-center gap-1.5 sm:gap-2">
+                        <TicketIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                         Live Support Ticket Queues
                       </h3>
-                      <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                      <span className="text-[9px] sm:text-[10px] bg-blue-50 text-blue-700 font-bold px-1.5 sm:px-2 py-0.5 rounded-full">
                         {filteredTickets.length} of {tickets.length} tickets
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
                       {/* Search bar */}
-                      <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                      <div className="relative min-w-full flex-1 sm:min-w-[180px] lg:min-w-[220px]">
+                        <Search className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400" />
                         <input
                           type="text"
                           placeholder="Search ID, User Name, Contact..."
                           value={ticketSearch}
                           onChange={(e) => setTicketSearch(e.target.value)}
-                          className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 text-slate-800 placeholder-slate-400"
+                          className="w-full text-[11px] sm:text-xs pl-8 sm:pl-9 pr-2.5 sm:pr-3 py-1.5 sm:py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 text-slate-800 placeholder-slate-400"
                         />
                       </div>
 
                       {/* Status Filter */}
-                      <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
-                        <Filter className="w-3 h-3 text-slate-400" />
+                      <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2 sm:px-2.5 py-0.5 sm:py-1">
+                        <Filter className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400" />
                         <select
                           value={ticketStatusFilter}
                           onChange={(e) => setTicketStatusFilter(e.target.value)}
-                          className="text-[11px] bg-transparent focus:outline-none font-semibold text-slate-700 cursor-pointer pr-1"
+                          className="text-[10px] sm:text-[11px] bg-transparent focus:outline-none font-semibold text-slate-700 cursor-pointer pr-1"
                         >
                           <option value="all">All Statuses</option>
                           <option value="pending">Pending</option>
@@ -764,12 +785,12 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       </div>
 
                       {/* Date Filter */}
-                      <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
-                        <Calendar className="w-3 h-3 text-slate-400" />
+                      <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2 sm:px-2.5 py-0.5 sm:py-1">
+                        <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400" />
                         <select
                           value={ticketDateFilter}
                           onChange={(e) => setTicketDateFilter(e.target.value)}
-                          className="text-[11px] bg-transparent focus:outline-none font-semibold text-slate-700 cursor-pointer pr-1"
+                          className="text-[10px] sm:text-[11px] bg-transparent focus:outline-none font-semibold text-slate-700 cursor-pointer pr-1"
                         >
                           <option value="all">All Dates</option>
                           <option value="today">Today</option>
@@ -782,26 +803,26 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
                   {/* High Density Scrollable Table List */}
                   <div ref={ticketListScrollRef} className="flex-1 overflow-auto rounded-xl border border-slate-100 bg-slate-50/50">
-                    <table className="w-full text-left border-collapse text-xs min-w-[750px]">
-                      <thead className="sticky top-0 bg-slate-100 text-slate-500 font-bold uppercase text-[9px] tracking-wider border-b border-slate-200 shadow-sm z-10">
+                    <table className="w-full min-w-[600px] sm:min-w-[760px] border-collapse text-left text-[10px] sm:text-xs">
+                      <thead className="sticky top-0 bg-slate-100 text-slate-500 font-bold uppercase text-[8px] sm:text-[9px] tracking-wider border-b border-slate-200 shadow-sm z-10">
                         <tr>
-                          <th className="py-2.5 px-3 text-center w-12">SR. No.</th>
-                          <th className="py-2.5 px-3 w-20 text-slate-600">Ticket ID</th>
-                          <th className="py-2.5 px-3">User Name</th>
-                          <th className="py-2.5 px-3">Contact Number</th>
-                          <th className="py-2.5 px-3">Issue Title</th>
-                          <th className="py-2.5 px-3 w-24">Created Date</th>
-                          <th className="py-2.5 px-3 w-20">Status</th>
-                          <th className="py-2.5 px-3 w-28">Assigned Technician</th>
-                          <th className="py-2.5 px-2 text-center w-8"></th>
+                          <th className="py-2 sm:py-2.5 px-2 sm:px-3 text-center w-10 sm:w-12">SR. No.</th>
+                          <th className="py-2 sm:py-2.5 px-2 sm:px-3 w-16 sm:w-20 text-slate-600">Ticket ID</th>
+                          <th className="py-2 sm:py-2.5 px-2 sm:px-3">User Name</th>
+                          <th className="py-2 sm:py-2.5 px-2 sm:px-3">Contact Number</th>
+                          <th className="py-2 sm:py-2.5 px-2 sm:px-3">Issue Title</th>
+                          <th className="py-2 sm:py-2.5 px-2 sm:px-3 w-20 sm:w-24">Created Date</th>
+                          <th className="py-2 sm:py-2.5 px-2 sm:px-3 w-16 sm:w-20">Status</th>
+                          <th className="py-2 sm:py-2.5 px-2 sm:px-3 w-24 sm:w-28 hidden sm:table-cell">Assigned Technician</th>
+                          <th className="py-2 sm:py-2.5 px-1.5 sm:px-2 text-center w-6 sm:w-8"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
                         {filteredTickets.length === 0 ? (
                           <tr>
-                            <td colSpan={9} className="py-12 text-center text-slate-400">
-                              <TicketIcon className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                              <span className="text-xs">No support tickets match these parameters.</span>
+                            <td colSpan={9} className="py-10 sm:py-12 text-center text-slate-400">
+                              <TicketIcon className="w-6 h-6 sm:w-8 sm:h-8 mx-auto mb-2 text-slate-300" />
+                              <span className="text-[10px] sm:text-xs">No support tickets match these parameters.</span>
                             </td>
                           </tr>
                         ) : (
@@ -811,28 +832,28 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                               onClick={() => handleSelectTicket(t)}
                               className="hover:bg-slate-50/80 cursor-pointer transition-all text-slate-700"
                             >
-                              <td className="py-1.5 px-3 text-center font-mono text-[10px] text-slate-400 border-r border-slate-100/60">
+                              <td className="py-1 sm:py-1.5 px-2 sm:px-3 text-center font-mono text-[9px] sm:text-[10px] text-slate-400 border-r border-slate-100/60">
                                 {idx + 1}
                               </td>
-                              <td className="py-1.5 px-3 font-mono text-[11px] font-bold text-blue-600">
+                              <td className="py-1 sm:py-1.5 px-2 sm:px-3 font-mono text-[10px] sm:text-[11px] font-bold text-blue-600">
                                 {t.id}
                               </td>
-                              <td className="py-1.5 px-3 font-semibold text-slate-800">
+                              <td className="py-1 sm:py-1.5 px-2 sm:px-3 font-semibold text-slate-800">
                                 {t.userName}
                               </td>
-                              <td className="py-1.5 px-3 text-slate-500 font-mono text-[11px]">
+                              <td className="py-1 sm:py-1.5 px-2 sm:px-3 text-slate-500 font-mono text-[10px] sm:text-[11px]">
                                 {t.userPhone}
                               </td>
-                              <td className="py-1.5 px-3">
-                                <div className="max-w-[150px] truncate font-semibold text-slate-800" title={t.issueTitle}>
+                              <td className="py-1 sm:py-1.5 px-2 sm:px-3">
+                                <div className="max-w-[120px] sm:max-w-[150px] truncate font-semibold text-slate-800" title={t.issueTitle}>
                                   {t.issueTitle}
                                 </div>
                               </td>
-                              <td className="py-1.5 px-3 text-slate-500 font-mono text-[11px]">
+                              <td className="py-1 sm:py-1.5 px-2 sm:px-3 text-slate-500 font-mono text-[10px] sm:text-[11px]">
                                 {new Date(t.createdAt).toLocaleDateString()}
                               </td>
-                              <td className="py-1.5 px-3">
-                                <span className={`inline-block text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                              <td className="py-1 sm:py-1.5 px-2 sm:px-3">
+                                <span className={`inline-block text-[8px] sm:text-[9px] font-extrabold px-1.5 sm:px-2 py-0.5 rounded-full uppercase ${
                                   t.status === "closed"
                                     ? "bg-green-50 text-green-700 border border-green-200/50"
                                     : t.status === "assigned"
@@ -842,13 +863,13 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                                   {t.status}
                                 </span>
                               </td>
-                              <td className="py-1.5 px-3 font-semibold text-slate-700">
+                              <td className="py-1 sm:py-1.5 px-2 sm:px-3 font-semibold text-slate-700 hidden sm:table-cell">
                                 {t.assignedStaffName || (
-                                  <span className="text-slate-400 font-normal italic">Unassigned</span>
+                                  <span className="text-slate-400 font-normal italic text-[10px]">Unassigned</span>
                                 )}
                               </td>
-                              <td className="py-1.5 px-2 text-center">
-                                <ChevronRight className="w-4 h-4 text-slate-400 inline" />
+                              <td className="py-1 sm:py-1.5 px-1 sm:px-1.5 sm:px-2 text-center">
+                                <ChevronRight className="w-3 h-3 sm:w-4 sm:h-4 text-slate-400 inline" />
                               </td>
                             </tr>
                           ))
@@ -863,31 +884,31 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
             {/* ── TAB 3: USER DATABASE SEARCH ── */}
             {activeTab === "users" && (
-              <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm space-y-4">
-                <div className="flex justify-between items-center gap-4 border-b border-slate-100 pb-4">
-                  <h3 className="font-bold text-sm tracking-tight text-slate-700">Registered End Users Directory</h3>
-                  <div className="relative w-72">
-                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+              <div className="bg-white border border-slate-200/80 rounded-xl p-3 sm:p-4 lg:p-5 shadow-sm space-y-3 sm:space-y-4">
+                <div className="flex flex-col gap-2 sm:gap-3 border-b border-slate-100 pb-3 sm:pb-4 sm:flex-row sm:items-center sm:justify-between">
+                  <h3 className="font-bold text-xs sm:text-sm tracking-tight text-slate-700">Registered End Users Directory</h3>
+                  <div className="relative w-full sm:w-60 lg:w-72">
+                    <Search className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="Search by name, email, or contact number..."
+                      placeholder="Search by name, email, or contact..."
                       value={userSearch}
                       onChange={(e) => setUserSearch(e.target.value)}
-                      className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 text-slate-800 placeholder-slate-400"
+                      className="w-full text-[11px] sm:text-xs pl-8 sm:pl-9 pr-2.5 sm:pr-3 py-1.5 sm:py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 text-slate-800 placeholder-slate-400"
                     />
                   </div>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
+                  <table className="w-full min-w-[600px] sm:min-w-[720px] text-left text-[10px] sm:text-xs border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-100 text-slate-400 uppercase text-[10px] font-bold">
-                        <th className="py-3 px-4">User ID</th>
-                        <th className="py-3 px-4">Full Name</th>
-                        <th className="py-3 px-4">Contact Credentials</th>
-                        <th className="py-3 px-4">Company Designation</th>
-                        <th className="py-3 px-4">Linked Tickets</th>
-                        <th className="py-3 px-4 text-right">Register Date</th>
+                      <tr className="border-b border-slate-100 text-slate-400 uppercase text-[8px] sm:text-[10px] font-bold">
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">User ID</th>
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">Full Name</th>
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">Contact Credentials</th>
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">Company Designation</th>
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">Linked Tickets</th>
+                        <th className="py-2 sm:py-3 px-2 sm:px-4 text-right hidden sm:table-cell">Register Date</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -895,22 +916,22 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                         const linked = tickets.filter(t => t.userId === u.id);
                         return (
                           <tr key={u.id} className="hover:bg-slate-50/50">
-                            <td className="py-3.5 px-4 font-mono text-blue-600 font-semibold">{u.id}</td>
-                            <td className="py-3.5 px-4 font-bold text-slate-800">{u.name}</td>
-                            <td className="py-3.5 px-4 space-y-0.5">
-                              <span className="block text-slate-700 font-semibold">{u.email}</span>
-                              <span className="block text-[10px] text-slate-400 font-mono">{u.phone}</span>
+                            <td className="py-2.5 sm:py-3.5 px-2 sm:px-4 font-mono text-blue-600 font-semibold text-[10px] sm:text-xs">{u.id}</td>
+                            <td className="py-2.5 sm:py-3.5 px-2 sm:px-4 font-bold text-slate-800 text-[10px] sm:text-xs">{u.name}</td>
+                            <td className="py-2.5 sm:py-3.5 px-2 sm:px-4 space-y-0.5">
+                              <span className="block text-slate-700 font-semibold text-[10px] sm:text-xs">{u.email}</span>
+                              <span className="block text-[9px] sm:text-[10px] text-slate-400 font-mono">{u.phone}</span>
                             </td>
-                            <td className="py-3.5 px-4">
-                              <span className="block text-slate-700 font-semibold">{u.companyName}</span>
-                              <span className="block text-[10px] text-slate-400">{u.designation}</span>
+                            <td className="py-2.5 sm:py-3.5 px-2 sm:px-4">
+                              <span className="block text-slate-700 font-semibold text-[10px] sm:text-xs">{u.companyName}</span>
+                              <span className="block text-[9px] sm:text-[10px] text-slate-400">{u.designation}</span>
                             </td>
-                            <td className="py-3.5 px-4">
-                              <span className="bg-slate-100 text-slate-600 border border-slate-200/60 px-2.5 py-0.5 rounded-full font-bold">
+                            <td className="py-2.5 sm:py-3.5 px-2 sm:px-4">
+                              <span className="bg-slate-100 text-slate-600 border border-slate-200/60 px-2 sm:px-2.5 py-0.5 rounded-full font-bold text-[10px] sm:text-xs">
                                 {linked.length} Tickets
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 text-right text-slate-400 font-mono">
+                            <td className="py-2.5 sm:py-3.5 px-2 sm:px-4 text-right text-slate-400 font-mono text-[10px] sm:text-xs hidden sm:table-cell">
                               {new Date(u.createdAt).toLocaleDateString()}
                             </td>
                           </tr>
@@ -924,11 +945,11 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
             {/* ── TAB 4: SUPPORT STAFF CRUD ── */}
             {activeTab === "staff" && (
-              <div className="space-y-6">
-                <div className="bg-white border border-slate-200/80 p-5 rounded-xl shadow-sm flex items-center justify-between">
+              <div className="space-y-4 sm:space-y-6">
+                <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="font-bold text-sm tracking-tight text-slate-700">Support Technicians Directory</h3>
-                    <p className="text-[10px] text-slate-400 mt-1">Manage, activate, or register support engineers eligible for ticket dispatch routing.</p>
+                    <h3 className="font-bold text-xs sm:text-sm tracking-tight text-slate-700">Support Technicians Directory</h3>
+                    <p className="text-[9px] sm:text-[10px] text-slate-400 mt-1">Manage, activate, or register support engineers eligible for ticket dispatch routing.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -937,23 +958,23 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       setStaffFormErrors({ email: "", phone: "" });
                       setShowStaffModal(true);
                     }}
-                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all active:scale-95"
+                    className="w-full justify-center bg-blue-600 hover:bg-blue-500 text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[11px] sm:text-xs font-bold shadow-md flex items-center gap-1.5 sm:gap-2 transition-all active:scale-95 sm:w-auto"
                     id="add-staff-btn"
                   >
-                    <UserPlus className="w-4 h-4" />
+                    <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     Register New Technician
                   </button>
                 </div>
 
                 {/* Staff list */}
-                <div className="grid grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-6">
                   {filteredStaff.map((s) => (
-                    <div key={s.id} className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm space-y-4">
+                    <div key={s.id} className="bg-white border border-slate-200 p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm space-y-3 sm:space-y-4">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono text-[10px] font-bold text-slate-500 uppercase bg-slate-100 px-2 py-0.5 rounded">
+                        <span className="font-mono text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase bg-slate-100 px-1.5 sm:px-2 py-0.5 rounded">
                           {s.id}
                         </span>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${
+                        <span className={`text-[9px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-full capitalize ${
                           s.status === "active" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"
                         }`}>
                           {s.status}
@@ -961,21 +982,21 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       </div>
 
                       <div className="space-y-1">
-                        <h4 className="font-bold text-slate-800">{s.name}</h4>
-                        <div className="space-y-0.5 text-xs text-slate-500">
-                          <span className="flex items-center gap-2">
-                            <Mail className="w-3.5 h-3.5 text-slate-400" />
+                        <h4 className="font-bold text-xs sm:text-sm text-slate-800">{s.name}</h4>
+                        <div className="space-y-0.5 text-[10px] sm:text-xs text-slate-500">
+                          <span className="flex items-center gap-1.5 sm:gap-2">
+                            <Mail className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400" />
                             {s.email}
                           </span>
-                          <span className="flex items-center gap-2 font-mono">
-                            <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="flex items-center gap-1.5 sm:gap-2 font-mono">
+                            <Sliders className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400" />
                             {s.phone}
                           </span>
                         </div>
                       </div>
 
                       {/* CRUD controls */}
-                      <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                      <div className="flex items-center justify-end gap-1.5 sm:gap-2 border-t border-slate-100 pt-2.5 sm:pt-3">
                         <button
                           onClick={() => {
                             setEditingStaff(s);
@@ -988,17 +1009,17 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                             setStaffFormErrors({ email: "", phone: "" });
                             setShowStaffModal(true);
                           }}
-                          className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-all"
+                          className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-all"
                           title="Edit Staff Parameters"
                         >
-                          <Edit className="w-4 h-4" />
+                          <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteStaff(s.id)}
-                          className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-red-600 transition-all"
+                          className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-red-600 transition-all"
                           title="Remove Technician"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                         </button>
                       </div>
                     </div>
@@ -1007,18 +1028,18 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
                 {/* Staff Modal */}
                 {showStaffModal && (
-                  <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white border border-slate-200 rounded-xl w-full max-w-md overflow-hidden shadow-2xl">
-                      <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                        <h3 className="font-bold text-sm text-slate-800">
+                  <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+                    <div className="bg-white border border-slate-200 rounded-xl w-full max-w-md max-h-[90dvh] overflow-y-auto shadow-2xl">
+                      <div className="p-4 sm:p-5 border-b border-slate-100 flex justify-between items-center">
+                        <h3 className="font-bold text-xs sm:text-sm text-slate-800">
                           {editingStaff ? "Edit Technician Details" : "Register Support Technician"}
                         </h3>
                         <button onClick={() => setShowStaffModal(false)} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-800">
-                          <X className="w-5 h-5" />
+                          <X className="w-4 h-4 sm:w-5 sm:h-5" />
                         </button>
                       </div>
 
-                      <form onSubmit={handleSaveStaff} noValidate className="p-5 space-y-4">
+                      <form onSubmit={handleSaveStaff} noValidate className="p-4 sm:p-5 space-y-3 sm:space-y-4">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Technician Name *</label>
                           <input
@@ -1027,7 +1048,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                             placeholder="Enter full name"
                             value={staffForm.name}
                             onChange={(e) => setStaffForm({...staffForm, name: e.target.value})}
-                            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 text-slate-800"
+                            className="w-full text-[11px] sm:text-xs p-2 sm:p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 text-slate-800"
                           />
                         </div>
 
@@ -1043,7 +1064,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                               setStaffForm({...staffForm, email});
                               setStaffFormErrors({...staffFormErrors, email: email ? validateEmailAddress(email) : ""});
                             }}
-                            className={`w-full text-xs p-2.5 bg-slate-50 border rounded-xl focus:outline-none focus:border-blue-500 text-slate-800 ${staffFormErrors.email ? "border-red-300" : "border-slate-200"}`}
+                            className={`w-full text-[11px] sm:text-xs p-2 sm:p-2.5 bg-slate-50 border rounded-xl focus:outline-none focus:border-blue-500 text-slate-800 ${staffFormErrors.email ? "border-red-300" : "border-slate-200"}`}
                           />
                           {staffFormErrors.email && <p className="text-[10px] text-red-600 font-semibold">{staffFormErrors.email}</p>}
                         </div>
@@ -1063,7 +1084,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                               setStaffForm({...staffForm, phone});
                               setStaffFormErrors({...staffFormErrors, phone: validateContactNumber(phone)});
                             }}
-                            className={`w-full text-xs p-2.5 bg-slate-50 border rounded-xl focus:outline-none focus:border-blue-500 text-slate-800 ${staffFormErrors.phone ? "border-red-300" : "border-slate-200"}`}
+                            className={`w-full text-[11px] sm:text-xs p-2 sm:p-2.5 bg-slate-50 border rounded-xl focus:outline-none focus:border-blue-500 text-slate-800 ${staffFormErrors.phone ? "border-red-300" : "border-slate-200"}`}
                           />
                           {staffFormErrors.phone && <p className="text-[10px] text-red-600 font-semibold">{staffFormErrors.phone}</p>}
                         </div>
@@ -1073,7 +1094,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                           <select
                             value={staffForm.status}
                             onChange={(e: any) => setStaffForm({...staffForm, status: e.target.value})}
-                            className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-500 text-slate-700"
+                            className="w-full text-[11px] sm:text-xs bg-slate-50 border border-slate-200 rounded-xl p-2 sm:p-2.5 focus:outline-none focus:border-blue-500 text-slate-700"
                           >
                             <option value="active">Active (Available for Dispatch)</option>
                             <option value="inactive">Inactive (Deactivated)</option>
@@ -1083,7 +1104,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                         <button
                           type="submit"
                           disabled={!isStaffFormValid}
-                          className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition-all mt-4"
+                          className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-2 sm:py-2.5 rounded-xl text-[11px] sm:text-xs shadow-md transition-all mt-3 sm:mt-4"
                         >
                           {editingStaff ? "Save Technician Parameters" : "Register Technician"}
                         </button>
@@ -1096,35 +1117,35 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
             {/* ── TAB 5: SECURITY AUDIT LOGS ── */}
             {activeTab === "audit" && (
-              <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm space-y-4">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+              <div className="bg-white border border-slate-200/80 rounded-xl p-3 sm:p-4 lg:p-5 shadow-sm space-y-3 sm:space-y-4">
+                <div className="flex flex-col gap-1.5 sm:gap-2 border-b border-slate-100 pb-3 sm:pb-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="font-bold text-sm tracking-tight text-slate-700">Security & Operational Audit Logs</h3>
-                    <p className="text-[10px] text-slate-400 mt-1">Immutable record of ticket updates, database writes, and administrative technician registrations.</p>
+                    <h3 className="font-bold text-xs sm:text-sm tracking-tight text-slate-700">Security & Operational Audit Logs</h3>
+                    <p className="text-[9px] sm:text-[10px] text-slate-400 mt-1">Immutable record of ticket updates, database writes, and administrative technician registrations.</p>
                   </div>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
+                  <table className="w-full min-w-[600px] sm:min-w-[720px] text-left text-[10px] sm:text-xs border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-100 text-slate-400 uppercase text-[10px] font-bold">
-                        <th className="py-3 px-4">Log ID</th>
-                        <th className="py-3 px-4">Timestamp</th>
-                        <th className="py-3 px-4">Operator</th>
-                        <th className="py-3 px-4">System Event Action Description</th>
+                      <tr className="border-b border-slate-100 text-slate-400 uppercase text-[8px] sm:text-[10px] font-bold">
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">Log ID</th>
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">Timestamp</th>
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">Operator</th>
+                        <th className="py-2 sm:py-3 px-2 sm:px-4">System Event Action Description</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-mono">
                       {auditLogs.map((log) => (
-                        <tr key={log.id} className="hover:bg-slate-50/50 text-xs">
-                          <td className="py-3 px-4 text-slate-400 font-semibold">{log.id}</td>
-                          <td className="py-3 px-4 text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
-                          <td className="py-3 px-4">
-                            <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200/60">
+                        <tr key={log.id} className="hover:bg-slate-50/50 text-[10px] sm:text-xs">
+                          <td className="py-2 sm:py-3 px-2 sm:px-4 text-slate-400 font-semibold">{log.id}</td>
+                          <td className="py-2 sm:py-3 px-2 sm:px-4 text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
+                          <td className="py-2 sm:py-3 px-2 sm:px-4">
+                            <span className="bg-slate-100 text-slate-600 px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-semibold border border-slate-200/60">
                               {log.userName} ({log.userId})
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-blue-600 font-sans font-semibold">{log.action}</td>
+                          <td className="py-2 sm:py-3 px-2 sm:px-4 text-blue-600 font-sans font-semibold">{log.action}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1135,53 +1156,53 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
             {/* ── TAB 6: DIAGNOSTICS & SYSTEM CONFIG ── */}
             {activeTab === "settings" && (
-              <div className="space-y-6 max-w-2xl">
+              <div className="space-y-4 sm:space-y-6 max-w-2xl">
                 {/* SMTP Setup */}
-                <div className="bg-white border border-slate-200/80 p-5 rounded-xl shadow-sm space-y-4">
-                  <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                    <Database className="w-4 h-4 text-blue-600" />
+                <div className="bg-white border border-slate-200/80 p-4 sm:p-5 rounded-xl shadow-sm space-y-3 sm:space-y-4">
+                  <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5 sm:gap-2">
+                    <Database className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                     SMTP Server Diagnostic Credentials
                   </h3>
-                  <div className="space-y-3 font-mono text-xs">
-                    <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-2 sm:space-y-3 font-mono text-[10px] sm:text-xs">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-2">
                       <span className="text-slate-400">SMTP Host:</span>
-                      <span className="col-span-2 text-slate-700 font-semibold">smtp.gmail.com (SSL Port 587)</span>
+                      <span className="sm:col-span-2 text-slate-700 font-semibold">smtp.gmail.com (SSL Port 587)</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-2">
                       <span className="text-slate-400">Dispatch Sender Email:</span>
-                      <span className="col-span-2 text-slate-700 font-semibold">Configured via SMTP_USER</span>
+                      <span className="sm:col-span-2 text-slate-700 font-semibold">Configured via SMTP_USER</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-2">
                       <span className="text-slate-400">Support Alert Target:</span>
-                      <span className="col-span-2 text-blue-600 font-bold">Configured via SUPPORT_ALERT_EMAIL</span>
+                      <span className="sm:col-span-2 text-blue-600 font-bold">Configured via SUPPORT_ALERT_EMAIL</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-2">
                       <span className="text-slate-400">SMTP Service Connection:</span>
-                      <span className="col-span-2 text-green-600 flex items-center gap-1.5 font-bold">
-                        <CheckCircle className="w-4 h-4" /> Ready & Authorized
+                      <span className="sm:col-span-2 text-green-600 flex items-center gap-1 sm:gap-1.5 font-bold">
+                        <CheckCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Ready & Authorized
                       </span>
                     </div>
                   </div>
                 </div>
 
                 {/* AI Configuration */}
-                <div className="bg-white border border-slate-200/80 p-5 rounded-xl shadow-sm space-y-4">
-                  <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                    <Sliders className="w-4 h-4 text-blue-600" />
+                <div className="bg-white border border-slate-200/80 p-4 sm:p-5 rounded-xl shadow-sm space-y-3 sm:space-y-4">
+                  <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5 sm:gap-2">
+                    <Sliders className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                     Gemini Multimodal NLP & Vision AI Config
                   </h3>
-                  <div className="space-y-3 font-mono text-xs">
-                    <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-2 sm:space-y-3 font-mono text-[10px] sm:text-xs">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-2">
                       <span className="text-slate-400">SDK Engine Library:</span>
-                      <span className="col-span-2 text-slate-700 font-semibold">@google/genai ^2.4.0</span>
+                      <span className="sm:col-span-2 text-slate-700 font-semibold">@google/genai ^2.4.0</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-2">
                       <span className="text-slate-500 text-slate-400">Model Deployment:</span>
-                      <span className="col-span-2 text-slate-700 font-semibold">gemini-3.5-flash</span>
+                      <span className="sm:col-span-2 text-slate-700 font-semibold">gemini-3.5-flash</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-2">
                       <span className="text-slate-400">Active Integrations:</span>
-                      <span className="col-span-2 text-slate-600">Semantic issue matching, OCR Image Extraction, voice transcription (Speech-to-Text)</span>
+                      <span className="sm:col-span-2 text-slate-600">Semantic issue matching, OCR Image Extraction, voice transcription (Speech-to-Text)</span>
                     </div>
                   </div>
                 </div>
