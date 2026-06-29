@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   BarChart, 
   Bar, 
@@ -31,31 +31,37 @@ import {
   Trash2,
   Mail,
   UserCheck,
-  Send,
   Sliders,
   ChevronRight,
   Database,
-  Loader2,
   X,
   Filter,
   Calendar,
-  Paperclip,
   Download,
-  Phone,
-  Building,
-  User as UserIcon
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { Ticket, User, SupportStaff, AuditLog } from "../shared/types";
 import { sanitizeContactNumber, validateContactNumber, validateEmailAddress } from "../shared/validation";
+import TicketDetailsPage from "./TicketDetailsPage";
 
 interface AdminViewProps {
   onLogout: () => void;
 }
 
+const TICKET_LIST_STATE_KEY = "pugarch_ticket_list_state";
+
+function getTicketIdFromPath() {
+  const match = window.location.pathname.match(/^\/admin\/tickets\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export default function AdminView({ onLogout }: AdminViewProps) {
   // Navigation
-  const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "users" | "staff" | "audit" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "users" | "staff" | "audit" | "settings">(
+    window.location.pathname.startsWith("/admin/tickets") ? "tickets" : "dashboard"
+  );
+  const [ticketDetailId, setTicketDetailId] = useState<string | null>(getTicketIdFromPath);
+  const ticketListScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Live DB states
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -78,7 +84,6 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   const [techNotes, setTechNotes] = useState<{[key: string]: string}>({});
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [assigneeId, setAssigneeId] = useState("");
-  const [assigneeStatus, setAssigneeStatus] = useState<"pending" | "assigned" | "closed">("pending");
 
   // Staff CRUD state
   const [showStaffModal, setShowStaffModal] = useState(false);
@@ -132,6 +137,73 @@ export default function AdminView({ onLogout }: AdminViewProps) {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const savedState = sessionStorage.getItem(TICKET_LIST_STATE_KEY);
+    if (!savedState) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(savedState);
+      if (typeof parsed.search === "string") setTicketSearch(parsed.search);
+      if (typeof parsed.status === "string") setTicketStatusFilter(parsed.status);
+      if (typeof parsed.date === "string") setTicketDateFilter(parsed.date);
+    } catch (error) {
+      console.error("Failed to restore ticket list state:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    sessionStorage.setItem(
+      TICKET_LIST_STATE_KEY,
+      JSON.stringify({
+        search: ticketSearch,
+        status: ticketStatusFilter,
+        date: ticketDateFilter,
+        scrollTop: ticketListScrollRef.current?.scrollTop ?? 0,
+      })
+    );
+  }, [ticketSearch, ticketStatusFilter, ticketDateFilter]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextTicketId = getTicketIdFromPath();
+      setTicketDetailId(nextTicketId);
+      if (nextTicketId) {
+        setActiveTab("tickets");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (ticketDetailId) {
+      const routeTicket = tickets.find((ticket) => ticket.id === ticketDetailId);
+      if (routeTicket) {
+        hydrateTicketForm(routeTicket);
+      }
+      return;
+    }
+
+    if (activeTab === "tickets") {
+      window.setTimeout(() => {
+        const savedState = sessionStorage.getItem(TICKET_LIST_STATE_KEY);
+        if (!savedState || !ticketListScrollRef.current) {
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(savedState);
+          ticketListScrollRef.current.scrollTop = Number(parsed.scrollTop) || 0;
+        } catch {
+          ticketListScrollRef.current.scrollTop = 0;
+        }
+      }, 0);
+    }
+  }, [activeTab, ticketDetailId, tickets]);
+
   // Load local technician notes on mount
   useEffect(() => {
     const savedTechNotes = localStorage.getItem("pugarch_tech_notes");
@@ -145,15 +217,17 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   }, []);
 
   // Update Ticket (Assign or Close)
-  const handleUpdateTicket = async (ticketId: string) => {
+  const handleUpdateTicket = async (ticketId: string, statusOverride: Ticket["status"], techNotesOverride?: string) => {
     setIsLoading(true);
     const assigned = staff.find((s) => s.id === assigneeId);
+    const nextStatus = statusOverride;
+    const nextTechNotes = techNotesOverride ?? techNotesText;
     try {
       const res = await fetch(`/api/tickets/${ticketId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: assigneeStatus,
+          status: nextStatus,
           assignedStaffId: assigneeId || null,
           assignedStaffName: assigned ? assigned.name : null,
           resolutionNotes: resolutionText || null,
@@ -167,7 +241,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
         setSelectedTicket(updated);
         
         // Save technician notes to local dictionary & localStorage
-        const updatedTechNotes = { ...techNotes, [ticketId]: techNotesText };
+        const updatedTechNotes = { ...techNotes, [ticketId]: nextTechNotes };
         setTechNotes(updatedTechNotes);
         localStorage.setItem("pugarch_tech_notes", JSON.stringify(updatedTechNotes));
 
@@ -253,12 +327,38 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   };
 
   // Select ticket and update local state
-  const handleSelectTicket = (t: Ticket) => {
+  const hydrateTicketForm = (t: Ticket) => {
     setSelectedTicket(t);
     setAssigneeId(t.assignedStaffId || "");
-    setAssigneeStatus(t.status);
     setResolutionText(t.resolutionNotes || "");
     setTechNotesText(techNotes[t.id] || "");
+  };
+
+  const saveTicketListState = () => {
+    sessionStorage.setItem(
+      TICKET_LIST_STATE_KEY,
+      JSON.stringify({
+        search: ticketSearch,
+        status: ticketStatusFilter,
+        date: ticketDateFilter,
+        scrollTop: ticketListScrollRef.current?.scrollTop ?? 0,
+      })
+    );
+  };
+
+  const handleSelectTicket = (t: Ticket) => {
+    hydrateTicketForm(t);
+    saveTicketListState();
+    const nextPath = `/admin/tickets/${encodeURIComponent(t.id)}`;
+    window.history.pushState({ ticketId: t.id }, "", nextPath);
+    setTicketDetailId(t.id);
+    setActiveTab("tickets");
+  };
+
+  const handleBackToTickets = () => {
+    window.history.pushState({}, "", "/admin/tickets");
+    setTicketDetailId(null);
+    setActiveTab("tickets");
   };
 
   // Dynamic metrics helpers
@@ -316,6 +416,90 @@ export default function AdminView({ onLogout }: AdminViewProps) {
     return s.name.toLowerCase().includes(staffSearch.toLowerCase()) || s.email.toLowerCase().includes(staffSearch.toLowerCase());
   });
 
+  const currentTicketDetail = ticketDetailId
+    ? selectedTicket?.id === ticketDetailId
+      ? selectedTicket
+      : tickets.find((ticket) => ticket.id === ticketDetailId) || null
+    : null;
+
+  const handleTabChange = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    setTicketDetailId(null);
+    if (tab === "tickets") {
+      window.history.pushState({}, "", "/admin/tickets");
+    } else if (window.location.pathname.startsWith("/admin/tickets")) {
+      window.history.pushState({}, "", "/admin");
+    }
+  };
+
+  const previewModal = previewImage && (
+    <div className="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
+      <div className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden max-w-2xl w-full shadow-2xl flex flex-col">
+        <button 
+          onClick={() => setPreviewImage(null)} 
+          className="absolute top-4 right-4 bg-slate-900/60 hover:bg-slate-900/80 text-white p-1.5 rounded-full z-10 transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+        <div className="p-4 flex items-center justify-center bg-slate-50 min-h-[300px]">
+          <img src={previewImage} alt="Attachment Preview" referrerPolicy="no-referrer" className="max-h-[65vh] object-contain rounded-lg shadow-inner" />
+        </div>
+        <div className="p-4 border-t border-slate-100 flex justify-between items-center bg-white">
+          <span className="text-xs text-slate-500 font-mono truncate max-w-[70%]">{previewImage}</span>
+          <a 
+            href={previewImage} 
+            download 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-colors shadow-sm"
+          >
+            <Download className="w-3.5 h-3.5" /> Download Image
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (ticketDetailId) {
+    return (
+      <div className="min-h-screen bg-slate-100 p-4 text-slate-800 sm:p-6">
+        <div className="mx-auto max-w-7xl">
+          {currentTicketDetail ? (
+            <TicketDetailsPage
+              ticket={currentTicketDetail}
+              users={users}
+              staff={staff}
+              auditLogs={auditLogs}
+              techNotesText={techNotesText}
+              resolutionText={resolutionText}
+              assigneeId={assigneeId}
+              isLoading={isLoading}
+              onBack={handleBackToTickets}
+              onPreviewImage={setPreviewImage}
+              onTechNotesChange={setTechNotesText}
+              onResolutionTextChange={setResolutionText}
+              onAssigneeChange={setAssigneeId}
+              onSaveStatus={(status, notes) => handleUpdateTicket(currentTicketDetail.id, status, notes)}
+            />
+          ) : (
+            <div className="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
+              <button
+                type="button"
+                onClick={handleBackToTickets}
+                className="mb-5 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+              >
+                Back to Tickets
+              </button>
+              <h2 className="text-lg font-black text-slate-900">Ticket not found</h2>
+              <p className="mt-1 text-sm text-slate-500">The selected ticket is unavailable or still loading.</p>
+            </div>
+          )}
+        </div>
+        {previewModal}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-slate-100 text-slate-800 overflow-hidden font-sans">
       {/* ── Admin Sidebar Navigation ── */}
@@ -346,7 +530,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
+                  onClick={() => handleTabChange(item.id as typeof activeTab)}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold tracking-wide transition-all ${
                     activeTab === item.id
                       ? "bg-blue-600 text-white shadow-md shadow-blue-500/10"
@@ -535,11 +719,11 @@ export default function AdminView({ onLogout }: AdminViewProps) {
               </div>
             )}
 
-            {/* ── TAB 2: TICKETS LIST & INTERACTIVE CHAT REVIEW ── */}
+            {/* ── TAB 2: TICKETS LIST ── */}
             {activeTab === "tickets" && (
-              <div className="grid grid-cols-12 gap-6 h-[calc(100vh-10rem)]">
+              <div className="h-[calc(100vh-10rem)]">
                 {/* Tickets list panel */}
-                <div className="col-span-12 xl:col-span-7 lg:col-span-7 bg-white border border-slate-200/80 rounded-xl p-4 flex flex-col shadow-sm overflow-hidden h-full">
+                <div className="bg-white border border-slate-200/80 rounded-xl p-4 flex flex-col shadow-sm overflow-hidden h-full">
                   <div className="flex flex-col gap-3 mb-4">
                     <div className="flex items-center justify-between">
                       <h3 className="font-bold text-sm tracking-tight text-slate-800 flex items-center gap-2">
@@ -597,7 +781,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                   </div>
 
                   {/* High Density Scrollable Table List */}
-                  <div className="flex-1 overflow-auto rounded-xl border border-slate-100 bg-slate-50/50">
+                  <div ref={ticketListScrollRef} className="flex-1 overflow-auto rounded-xl border border-slate-100 bg-slate-50/50">
                     <table className="w-full text-left border-collapse text-xs min-w-[750px]">
                       <thead className="sticky top-0 bg-slate-100 text-slate-500 font-bold uppercase text-[9px] tracking-wider border-b border-slate-200 shadow-sm z-10">
                         <tr>
@@ -625,9 +809,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                             <tr
                               key={t.id}
                               onClick={() => handleSelectTicket(t)}
-                              className={`hover:bg-slate-50/80 cursor-pointer transition-all ${
-                                selectedTicket?.id === t.id ? "bg-blue-50/70 text-slate-900 font-medium" : "text-slate-700"
-                              }`}
+                              className="hover:bg-slate-50/80 cursor-pointer transition-all text-slate-700"
                             >
                               <td className="py-1.5 px-3 text-center font-mono text-[10px] text-slate-400 border-r border-slate-100/60">
                                 {idx + 1}
@@ -676,293 +858,6 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                   </div>
                 </div>
 
-                {/* Ticket Details & Chat Log Panel */}
-                <div className="col-span-12 xl:col-span-5 lg:col-span-5 bg-white border border-slate-200/80 rounded-xl p-4 flex flex-col shadow-sm overflow-y-auto h-full space-y-4">
-                  {selectedTicket ? (
-                    <div className="space-y-4 flex flex-col h-full justify-between">
-                      {/* Section 1: Ticket Information */}
-                      {(() => {
-                        // Dynamic priority computation helper
-                        const getPriority = (code: string) => {
-                          if (!code) return "Low";
-                          const c = code.toUpperCase();
-                          if (c.startsWith("A") || c.includes("PAY") || c.includes("ERR")) return "High";
-                          if (c.startsWith("B") || c.includes("ACC")) return "Medium";
-                          return "Low";
-                        };
-                        const priority = getPriority(selectedTicket.issueCode);
-                        const priorityColor = 
-                          priority === "High" ? "bg-rose-50 border-rose-200 text-rose-700" :
-                          priority === "Medium" ? "bg-amber-50 border-amber-200 text-amber-700" :
-                          "bg-slate-50 border-slate-200 text-slate-600";
-
-                        const ticketUser = users.find(u => u.id === selectedTicket.userId) || {
-                          name: selectedTicket.userName,
-                          phone: selectedTicket.userPhone,
-                          email: selectedTicket.userEmail,
-                          companyName: "PugArch Diagnostics",
-                          designation: "End User"
-                        };
-
-                        // Attachments filtered from chat messages
-                        const attachments = selectedTicket.conversation?.filter(m => m.type === "image" || m.mediaUrl) || [];
-
-                        return (
-                          <>
-                            <div className="bg-slate-50/50 border border-slate-200/60 rounded-xl p-3.5 space-y-2.5">
-                              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ticket Information</span>
-                                </div>
-                                <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${priorityColor}`}>
-                                  {priority} Priority
-                                </span>
-                              </div>
-                              
-                              <div className="grid grid-cols-2 gap-3 text-xs">
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Ticket ID</span>
-                                  <span className="font-mono font-bold text-slate-800">{selectedTicket.id}</span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Category</span>
-                                  <span className="font-semibold text-slate-700 truncate block" title={selectedTicket.category}>{selectedTicket.category || "General"}</span>
-                                </div>
-                                <div className="col-span-2">
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Issue Title</span>
-                                  <span className="font-bold text-slate-800 block text-xs">{selectedTicket.issueTitle}</span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Created Date</span>
-                                  <span className="text-slate-600 font-mono text-[11px] block">{new Date(selectedTicket.createdAt).toLocaleString()}</span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Last Updated</span>
-                                  <span className="text-slate-600 font-mono text-[11px] block">
-                                    {selectedTicket.closedAt ? new Date(selectedTicket.closedAt).toLocaleString() : new Date(selectedTicket.createdAt).toLocaleString()}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Language Support</span>
-                                  <span className="text-slate-700 font-semibold uppercase">{selectedTicket.language}</span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Status Code</span>
-                                  <span className="font-mono text-slate-600 text-[11px]">{selectedTicket.issueCode}</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Section 2: User Information */}
-                            <div className="bg-slate-50/50 border border-slate-200/60 rounded-xl p-3.5 space-y-2.5">
-                              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200/60 pb-2 flex items-center gap-1.5">
-                                <UserIcon className="w-3.5 h-3.5 text-slate-500" />
-                                End User Information
-                              </h4>
-                              <div className="grid grid-cols-2 gap-3 text-xs">
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Full Name</span>
-                                  <span className="font-bold text-slate-800">{selectedTicket.userName}</span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Contact Number</span>
-                                  <span className="font-semibold text-slate-700 font-mono">{selectedTicket.userPhone}</span>
-                                </div>
-                                <div className="col-span-2">
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Email Address</span>
-                                  <span className="text-slate-600 font-mono block truncate" title={selectedTicket.userEmail}>{selectedTicket.userEmail}</span>
-                                </div>
-                                <div className="col-span-2">
-                                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Company Name & Designation</span>
-                                  <span className="text-slate-700 font-medium block">
-                                    <Building className="w-3.5 h-3.5 inline mr-1 text-slate-400" />
-                                    {ticketUser.companyName} • <span className="text-slate-500">{ticketUser.designation}</span>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Section 3: ChatGPT/WhatsApp Style Chat Conversation */}
-                            <div className="space-y-2">
-                              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                                <Mail className="w-3.5 h-3.5 text-slate-500" />
-                                WhatsApp Live Diagnostics Log
-                              </h4>
-                              <div className="overflow-y-auto space-y-3.5 bg-slate-100/70 border border-slate-200/50 p-4 rounded-xl h-64 shadow-inner">
-                                {selectedTicket.conversation?.map((msg, i) => {
-                                  const isUser = msg.sender === "user";
-                                  const isBot = msg.sender === "bot";
-                                  
-                                  return (
-                                    <div key={i} className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
-                                      <div className={`p-3 rounded-2xl text-xs max-w-[85%] shadow-sm ${
-                                        isUser 
-                                          ? "bg-blue-600 text-white rounded-tr-none" 
-                                          : isBot 
-                                          ? "bg-white text-slate-800 border border-slate-200 rounded-tl-none" 
-                                          : "bg-purple-50 text-purple-900 border border-purple-200 rounded-tl-none"
-                                      }`}>
-                                        <div className="flex items-center justify-between gap-4 mb-1">
-                                          <span className={`font-bold text-[9px] uppercase tracking-wider block ${
-                                            isUser ? "text-blue-100" : isBot ? "text-emerald-600" : "text-purple-600"
-                                          }`}>
-                                            {isUser ? "End User Client" : isBot ? "🤖 Diagnostics Bot" : `🔧 Tech: ${selectedTicket.assignedStaffName || "Support staff"}`}
-                                          </span>
-                                        </div>
-                                        <p className="whitespace-pre-wrap leading-relaxed font-sans">{msg.message}</p>
-                                        
-                                        {/* Attachment inclusion within balloon itself */}
-                                        {msg.type === "image" && msg.mediaUrl && (
-                                          <div className="mt-2.5 relative group cursor-zoom-in rounded-lg overflow-hidden border border-slate-200/50 bg-slate-50">
-                                            <img 
-                                              src={msg.mediaUrl} 
-                                              alt="Screenshot" 
-                                              referrerPolicy="no-referrer"
-                                              className="max-h-28 object-contain mx-auto"
-                                              onClick={() => setPreviewImage(msg.mediaUrl || null)}
-                                            />
-                                          </div>
-                                        )}
-                                      </div>
-                                      <span className="text-[8px] text-slate-400 mt-1 font-mono tracking-tighter px-1">
-                                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            {/* Section 4: Attachments */}
-                            <div className="bg-slate-50/50 border border-slate-200/60 rounded-xl p-3.5 space-y-2">
-                              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                                <Paperclip className="w-3.5 h-3.5 text-slate-500" />
-                                Interactive Attachments ({attachments.length})
-                              </h4>
-                              
-                              {attachments.length === 0 ? (
-                                <div className="flex items-center gap-2 p-2 bg-slate-100/50 border border-slate-200/30 rounded-lg text-slate-400 text-xs">
-                                  <span>No attachments uploaded in this conversation.</span>
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-4 gap-2">
-                                  {attachments.map((att, idx) => (
-                                    <div key={idx} className="group relative border border-slate-200 bg-white rounded-lg p-1.5 flex flex-col justify-between items-center space-y-1.5 shadow-sm hover:shadow-md transition-all">
-                                      <img 
-                                        src={att.mediaUrl} 
-                                        alt={`Attach-${idx}`} 
-                                        referrerPolicy="no-referrer"
-                                        className="w-full h-12 object-cover rounded cursor-pointer group-hover:scale-105 transition-all"
-                                        onClick={() => setPreviewImage(att.mediaUrl || null)}
-                                      />
-                                      <div className="flex justify-between w-full border-t border-slate-100 pt-1">
-                                        <button 
-                                          onClick={() => setPreviewImage(att.mediaUrl || null)}
-                                          className="text-[9px] text-blue-600 hover:underline font-bold"
-                                        >
-                                          View
-                                        </button>
-                                        <a 
-                                          href={att.mediaUrl} 
-                                          download 
-                                          target="_blank" 
-                                          rel="noopener noreferrer" 
-                                          className="text-[9px] text-slate-500 hover:text-slate-800 inline-flex items-center"
-                                        >
-                                          <Download className="w-2.5 h-2.5" />
-                                        </a>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Section 6: Action Controls */}
-                            <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl space-y-3">
-                              <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200/60 pb-1.5 flex items-center gap-1">
-                                <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                                Administrative Ticket Operations
-                              </h4>
-
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                  <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Assign Technician</label>
-                                  <select
-                                    value={assigneeId}
-                                    onChange={(e) => setAssigneeId(e.target.value)}
-                                    className="w-full text-xs bg-white border border-slate-200 rounded-xl p-2 focus:outline-none focus:border-blue-500 text-slate-700 font-semibold cursor-pointer"
-                                  >
-                                    <option value="">Unassigned</option>
-                                    {staff.filter(s => s.status === "active").map((s) => (
-                                      <option key={s.id} value={s.id}>{s.name}</option>
-                                    ))}
-                                  </select>
-                                </div>
-
-                                <div className="space-y-1">
-                                  <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Ticket Status</label>
-                                  <select
-                                    value={assigneeStatus}
-                                    onChange={(e: any) => setAssigneeStatus(e.target.value)}
-                                    className="w-full text-xs bg-white border border-slate-200 rounded-xl p-2 focus:outline-none focus:border-blue-500 text-slate-700 font-semibold cursor-pointer"
-                                  >
-                                    <option value="pending">Pending</option>
-                                    <option value="assigned">Assigned</option>
-                                    <option value="closed">Closed / Resolved</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              {/* Technician Notes (Internal) Input */}
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Internal Technician Notes</label>
-                                <textarea
-                                  placeholder="Document private internal diagnostic comments, technician remarks, or troubleshooting notes..."
-                                  rows={2}
-                                  value={techNotesText}
-                                  onChange={(e) => setTechNotesText(e.target.value)}
-                                  className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 resize-none text-slate-700"
-                                />
-                              </div>
-
-                              {/* Resolution Notes (Public) Input */}
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Resolution Notes (Email to User)</label>
-                                <textarea
-                                  placeholder="Add resolution details. This text is emailed directly to the customer as confirmation of issue resolution."
-                                  rows={2.5}
-                                  value={resolutionText}
-                                  onChange={(e) => setResolutionText(e.target.value)}
-                                  className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 resize-none text-slate-700"
-                                />
-                              </div>
-
-                              <button
-                                onClick={() => handleUpdateTicket(selectedTicket.id)}
-                                disabled={isLoading}
-                                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] disabled:opacity-50"
-                              >
-                                {isLoading ? (
-                                  <Loader2 className="w-4 h-4 animate-spin text-white" />
-                                ) : (
-                                  <Send className="w-3.5 h-3.5" />
-                                )}
-                                Save Changes & Dispatch Emails
-                              </button>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center py-20">
-                      <Sliders className="w-12 h-12 text-slate-300 mb-2" />
-                      <span className="text-xs font-bold text-slate-700">No Ticket Selected</span>
-                      <p className="text-[10px] text-slate-500 max-w-xs mt-1">Select an active support escalation from the list on the left to review logs, assign a tech, and document resolution notes.</p>
-                    </div>
-                  )}
-                </div>
               </div>
             )}
 
@@ -1298,33 +1193,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
       </main>
 
       {/* Full screen Attachment Image Preview Modal Overlay */}
-      {previewImage && (
-        <div className="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
-          <div className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden max-w-2xl w-full shadow-2xl flex flex-col">
-            <button 
-              onClick={() => setPreviewImage(null)} 
-              className="absolute top-4 right-4 bg-slate-900/60 hover:bg-slate-900/80 text-white p-1.5 rounded-full z-10 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <div className="p-4 flex items-center justify-center bg-slate-50 min-h-[300px]">
-              <img src={previewImage} alt="Attachment Preview" referrerPolicy="no-referrer" className="max-h-[65vh] object-contain rounded-lg shadow-inner" />
-            </div>
-            <div className="p-4 border-t border-slate-100 flex justify-between items-center bg-white">
-              <span className="text-xs text-slate-500 font-mono truncate max-w-[70%]">{previewImage}</span>
-              <a 
-                href={previewImage} 
-                download 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-colors shadow-sm"
-              >
-                <Download className="w-3.5 h-3.5" /> Download Image
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
+      {previewModal}
     </div>
   );
 }

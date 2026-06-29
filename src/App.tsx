@@ -4,18 +4,22 @@ import AdminView from "./components/AdminView";
 import LoginModal from "./components/LoginModal";
 
 export default function App() {
-  const [isAdminView, setIsAdminView] = useState(false);
+  const [isAdminView, setIsAdminView] = useState(() => window.location.pathname.startsWith("/admin"));
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   const handleAdminLoginSuccess = () => {
     setShowLoginModal(false);
+    window.history.pushState({}, "", "/admin");
     setIsAdminView(true);
   };
 
   if (isAdminView) {
     return (
       <AdminView 
-        onLogout={() => setIsAdminView(false)} 
+        onLogout={() => {
+          window.history.pushState({}, "", "/");
+          setIsAdminView(false);
+        }} 
       />
     );
   }
