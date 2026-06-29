@@ -1,4 +1,4 @@
-import { Issue } from "./types";
+import type { Issue } from "./types.js";
 
 export const ISSUES: Record<string, Issue> = {
   A1: {

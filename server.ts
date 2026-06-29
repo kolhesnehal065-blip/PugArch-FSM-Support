@@ -6,10 +6,10 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
-import { dbService } from "./src/server/db";
-import { ISSUES } from "./src/shared/issues";
-import { ChatMessage, Ticket, SupportStaff } from "./src/shared/types";
-import { validateContactNumber, validateEmailAddress } from "./src/shared/validation";
+import { dbService } from "./src/server/db.js";
+import { ISSUES } from "./src/shared/issues.js";
+import type { ChatMessage, Ticket, SupportStaff } from "./src/shared/types.js";
+import { validateContactNumber, validateEmailAddress } from "./src/shared/validation.js";
 
 // Load environment variables
 dotenv.config();

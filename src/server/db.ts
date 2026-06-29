@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import pg from "pg";
 import type { Pool as PgPool } from "pg";
-import { AuditLog, ChatMessage, SupportStaff, Ticket, User } from "../shared/types";
+import type { AuditLog, ChatMessage, SupportStaff, Ticket, User } from "../shared/types.js";
 
 const LEGACY_DB_PATH = path.join(process.cwd(), "server-db.json");
 const { Pool } = pg;
