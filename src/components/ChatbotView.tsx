@@ -312,6 +312,133 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     ]
   };
 
+  const subIssueLabels: Record<string, Record<string, string>> = {
+    A1: {
+      en: "A1 - User not found during signup",
+      hi: "A1 - साइनअप के दौरान उपयोगकर्ता नहीं मिला",
+      mr: "A1 - साइनअप करताना वापरकर्ता सापडला नाही",
+      or: "A1 - ସାଇନଅପ୍ ସମୟରେ ବ୍ୟବହାରକାରୀ ମିଳିଲେ ନାହିଁ",
+    },
+    A2: {
+      en: "A2 - Unable to login",
+      hi: "A2 - लॉगिन नहीं हो रहा है",
+      mr: "A2 - लॉगिन करता येत नाही",
+      or: "A2 - ଲଗଇନ୍ କରିପାରୁନାହାନ୍ତି",
+    },
+    B1: {
+      en: "B1 - Out of geofence message",
+      hi: "B1 - जियोफेंस से बाहर संदेश",
+      mr: "B1 - जिओफेन्सच्या बाहेर असल्याचा संदेश",
+      or: "B1 - ଜିଓଫେନ୍ସ ବାହାରେ ବାର୍ତ୍ତା",
+    },
+    B2: {
+      en: "B2 - Site or geofence not visible",
+      hi: "B2 - साइट या जियोफेंस दिखाई नहीं दे रहा",
+      mr: "B2 - साइट किंवा जिओफेन्स दिसत नाही",
+      or: "B2 - ସାଇଟ୍ କିମ୍ବା ଜିଓଫେନ୍ସ ଦେଖାଯାଉନାହିଁ",
+    },
+    B3: {
+      en: "B3 - Geofence missing from map",
+      hi: "B3 - मैप से जियोफेंस गायब है",
+      mr: "B3 - नकाशावर जिओफेन्स दिसत नाही",
+      or: "B3 - ମାପ୍‌ରୁ ଜିଓଫେନ୍ସ ନାହିଁ",
+    },
+    B4: {
+      en: "B4 - Location not fetching",
+      hi: "B4 - लोकेशन नहीं मिल रही",
+      mr: "B4 - लोकेशन मिळत नाही",
+      or: "B4 - ଲୋକେସନ୍ ଆସୁନାହିଁ",
+    },
+    C1: {
+      en: "C1 - Face recognition failed",
+      hi: "C1 - फेस रिकग्निशन असफल हुआ",
+      mr: "C1 - फेस रिकग्निशन अयशस्वी झाले",
+      or: "C1 - ଫେସ୍ ରେକଗ୍ନିସନ୍ ବିଫଳ ହେଲା",
+    },
+    C2: {
+      en: "C2 - Attendance not syncing",
+      hi: "C2 - अटेंडेंस सिंक नहीं हो रही",
+      mr: "C2 - उपस्थिती सिंक होत नाही",
+      or: "C2 - ଉପସ୍ଥିତି ସିଙ୍କ୍ ହେଉନାହିଁ",
+    },
+    C3: {
+      en: "C3 - Live tracking not updating",
+      hi: "C3 - लाइव ट्रैकिंग अपडेट नहीं हो रही",
+      mr: "C3 - लाईव्ह ट्रॅकिंग अपडेट होत नाही",
+      or: "C3 - ଲାଇଭ୍ ଟ୍ରାକିଂ ଅପଡେଟ୍ ହେଉନାହିଁ",
+    },
+    C4: {
+      en: "C4 - Tracking showing wrong route",
+      hi: "C4 - ट्रैकिंग गलत रूट दिखा रही है",
+      mr: "C4 - ट्रॅकिंग चुकीचा मार्ग दाखवत आहे",
+      or: "C4 - ଟ୍ରାକିଂ ଭୁଲ୍ ରୁଟ୍ ଦେଖାଉଛି",
+    },
+    C5: {
+      en: "C5 - Patrolling status not updating",
+      hi: "C5 - पेट्रोलिंग स्थिति अपडेट नहीं हो रही",
+      mr: "C5 - पेट्रोलिंग स्थिती अपडेट होत नाही",
+      or: "C5 - ପାଟ୍ରୋଲିଂ ସ୍ଥିତି ଅପଡେଟ୍ ହେଉନାହିଁ",
+    },
+    D1: {
+      en: "D1 - Application crashing frequently",
+      hi: "D1 - ऐप बार-बार क्रैश हो रहा है",
+      mr: "D1 - अॅप वारंवार क्रॅश होत आहे",
+      or: "D1 - ଆପ୍ ବାରମ୍ବାର କ୍ରାଶ୍ ହେଉଛି",
+    },
+    D2: {
+      en: "D2 - Slow app performance",
+      hi: "D2 - ऐप धीमा चल रहा है",
+      mr: "D2 - अॅप हळू चालत आहे",
+      or: "D2 - ଆପ୍ ଧୀରେ ଚାଲୁଛି",
+    },
+    D3: {
+      en: "D3 - App not installing",
+      hi: "D3 - ऐप इंस्टॉल नहीं हो रहा",
+      mr: "D3 - अॅप इन्स्टॉल होत नाही",
+      or: "D3 - ଆପ୍ ଇନଷ୍ଟଲ୍ ହେଉନାହିଁ",
+    },
+    E1: {
+      en: "E1 - Data loss after logout",
+      hi: "E1 - लॉगआउट के बाद डेटा खो गया",
+      mr: "E1 - लॉगआउटनंतर डेटा गमावला",
+      or: "E1 - ଲଗଆଉଟ୍ ପରେ ଡାଟା ହରାଇଗଲା",
+    },
+  };
+
+  const categoryPanelLabels: Record<string, Record<string, string>> = {
+    subProblems: {
+      en: "Sub-problems",
+      hi: "उप-समस्याएँ",
+      mr: "उप-समस्या",
+      or: "ଉପ-ସମସ୍ୟା",
+    },
+    back: {
+      en: "Back",
+      hi: "वापस",
+      mr: "मागे",
+      or: "ପଛକୁ",
+    },
+    notListed: {
+      en: "My issue is different / Not listed",
+      hi: "मेरी समस्या अलग है / सूची में नहीं है",
+      mr: "माझी समस्या वेगळी आहे / यादीत नाही",
+      or: "ମୋର ସମସ୍ୟା ଅଲଗା / ତାଲିକାରେ ନାହିଁ",
+    },
+  };
+
+  const getLocalizedValue = (values: Record<string, string> | undefined, fallback: string) => {
+    if (!values) return fallback;
+    return values[selectedLanguage] || values.en || fallback;
+  };
+
+  const getSubIssueTitle = (subCode: string) => {
+    return getLocalizedValue(subIssueLabels[subCode], subCode);
+  };
+
+  const getCategoryPanelLabel = (key: keyof typeof categoryPanelLabels) => {
+    return getLocalizedValue(categoryPanelLabels[key], key);
+  };
+
   // Process next collected field
   const processCollectedField = async (userText: string, imageToSend: string | null) => {
     if (!collectingIssueCode) return;
@@ -649,8 +776,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
 
   const handleSubIssueSelect = async (subCode: string) => {
     setHasSelectedSubIssue(true);
-    const sub = Object.values(subIssues).flat().find(s => s.code === subCode);
-    pushMessage("user", sub ? sub.title : subCode);
+    pushMessage("user", getSubIssueTitle(subCode));
 
     setIsTyping(true);
     try {
@@ -1133,7 +1259,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                       <IconComp className="w-4 h-4" />
                     </div>
                     <span className="text-[11px] font-semibold text-slate-700 leading-tight group-hover:text-blue-600 transition-colors">
-                      {cat.name[selectedLanguage]}
+                      {cat.name[selectedLanguage] || cat.name.en || cat.code}
                     </span>
                   </button>
                 );
@@ -1151,13 +1277,13 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           >
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Sub-problems
+                {getCategoryPanelLabel("subProblems")}
               </h4>
               <button 
                 onClick={() => setCurrentCategory(null)}
                 className="text-xs text-red-500 hover:underline flex items-center gap-1"
               >
-                Back
+                {getCategoryPanelLabel("back")}
               </button>
             </div>
             <div className="space-y-1.5">
@@ -1167,15 +1293,15 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                   onClick={() => handleSubIssueSelect(sub.code)}
                   className="w-full text-left p-3 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-all text-xs font-medium text-slate-800 flex items-center justify-between"
                 >
-                  <span>{sub.title}</span>
+                  <span>{getSubIssueTitle(sub.code)}</span>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                 </button>
               ))}
               <button
-                onClick={() => handleCategorySelect("F", "My issue is different / Not listed")}
+                onClick={() => handleCategorySelect("F", getCategoryPanelLabel("notListed"))}
                 className="w-full text-left p-3 rounded-xl border border-dashed border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-all text-xs text-slate-600 flex items-center justify-between"
               >
-                <span>My issue is different / Not listed</span>
+                <span>{getCategoryPanelLabel("notListed")}</span>
                 <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
               </button>
             </div>
