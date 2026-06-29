@@ -1172,7 +1172,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
-              className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+              className={`flex shrink-0 ${isUser ? "justify-end" : "justify-start"}`}
             >
               <div 
                 className={`max-w-[90%] break-words p-2.5 text-[11px] leading-relaxed shadow-sm sm:max-w-[92%] sm:p-3 sm:text-xs lg:max-w-[85%] lg:p-3.5 lg:text-sm rounded-2xl ${
@@ -1218,7 +1218,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-slate-200/80 rounded-2xl p-3 sm:p-4 space-y-3 shadow-sm overflow-hidden"
+            className="shrink-0 bg-white border border-slate-200/80 rounded-2xl p-3 sm:p-4 space-y-3 shadow-sm overflow-hidden"
           >
             <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
               <Info className="w-3.5 h-3.5 text-slate-400" />
@@ -1273,7 +1273,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-slate-200 rounded-2xl p-2.5 sm:p-3 lg:p-4 space-y-2 shadow-sm overflow-hidden"
+            className="shrink-0 bg-white border border-slate-200 rounded-2xl p-2.5 sm:p-3 lg:p-4 space-y-2 shadow-sm overflow-hidden"
           >
             <div className="flex items-center justify-between gap-3 mb-2">
               <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -1313,7 +1313,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-blue-50 border border-blue-100 rounded-2xl p-3 sm:p-4 space-y-3 shadow-sm text-center overflow-hidden"
+            className="shrink-0 bg-blue-50 border border-blue-100 rounded-2xl p-3 sm:p-4 space-y-3 shadow-sm text-center overflow-hidden"
           >
             {awaitingFeedback === "NONE" ? (
               <>
@@ -1369,7 +1369,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white border border-red-100 rounded-2xl p-3 sm:p-4 space-y-3 shadow-md overflow-hidden"
+            className="shrink-0 bg-white border border-red-100 rounded-2xl p-3 sm:p-4 space-y-3 shadow-md overflow-hidden"
           >
             <div className="flex items-center gap-2 text-red-600 font-semibold text-sm border-b border-slate-100 pb-2">
               <AlertCircle className="w-4 h-4" />
@@ -1489,7 +1489,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
 
         {/* Loading Visualizer for Transcription/OCR */}
         {isTyping && (
-          <div className="flex justify-start">
+          <div className="flex shrink-0 justify-start">
             <div className="bg-white border border-slate-100/50 rounded-2xl rounded-tl-none p-3.5 shadow-sm text-sm text-slate-500 flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
               {isTranscribing 
