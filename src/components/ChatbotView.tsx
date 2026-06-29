@@ -1107,9 +1107,9 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
   };
 
   return (
-    <div id="chatbot-container" className="relative flex h-[100dvh] w-full max-w-full flex-col overflow-hidden overflow-x-hidden bg-slate-50 font-sans shadow-2xl sm:mx-auto sm:max-w-2xl sm:border-x sm:border-slate-200 lg:max-w-3xl xl:max-w-4xl">
+    <div id="chatbot-container" className="relative flex h-[100dvh] w-full max-w-full min-w-0 flex-col overflow-hidden overflow-x-hidden bg-slate-50 font-sans shadow-2xl sm:mx-auto sm:max-w-2xl sm:border-x sm:border-slate-200 lg:max-w-3xl xl:max-w-4xl">
       {/* ── Chat Header ── */}
-      <header className="sticky top-0 z-20 flex items-center justify-between gap-2 sm:gap-3 border-b border-slate-100 bg-white p-2.5 sm:p-3 lg:p-4 shadow-sm">
+      <header className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-2 sm:gap-3 border-b border-slate-100 bg-white p-2.5 sm:p-3 lg:p-4 shadow-sm">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center font-bold text-base sm:text-lg text-blue-600 border border-blue-200/50 shadow-sm">
             🐾
@@ -1163,7 +1163,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
       </header>
 
       {/* ── Main Chat Area ── */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 sm:p-3 lg:p-4 space-y-3 sm:space-y-4 flex flex-col scroll-smooth bg-[#F0F2F5]">
+      <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-2.5 sm:p-3 lg:p-4 space-y-3 sm:space-y-4 flex flex-col scroll-smooth bg-[#F0F2F5]">
         {messages.map((msg, index) => {
           const isUser = msg.sender === "user";
           return (
@@ -1501,12 +1501,12 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           </div>
         )}
 
-        <div ref={chatEndRef} />
+        <div ref={chatEndRef} className="shrink-0" />
       </main>
 
       {/* Attached Image Preview */}
       {attachedImage && (
-        <div className="bg-slate-100 p-2 sm:p-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-4 animate-slideUp">
+        <div className="shrink-0 bg-slate-100 p-2 sm:p-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-4 animate-slideUp">
           <div className="flex min-w-0 items-center gap-2">
             <img src={attachedImage} alt="Attachment" className="w-8 h-8 sm:w-10 sm:h-10 object-cover rounded-lg border border-slate-300" />
             <div className="min-w-0">
@@ -1525,7 +1525,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
 
       {/* Interactive Support Information Collection Status Banner */}
       {collectingIssueCode && (
-        <div className="bg-blue-50 px-2.5 sm:px-4 py-2 sm:py-2.5 border-t border-blue-100 flex flex-col gap-2 text-[11px] sm:text-xs text-blue-700 font-medium animate-slideUp sm:flex-row sm:items-center sm:justify-between">
+        <div className="shrink-0 bg-blue-50 px-2.5 sm:px-4 py-2 sm:py-2.5 border-t border-blue-100 flex flex-col gap-2 text-[11px] sm:text-xs text-blue-700 font-medium animate-slideUp sm:flex-row sm:items-center sm:justify-between">
           <span className="flex min-w-0 items-start gap-1.5">
             <Info className="w-4 h-4 text-blue-500" />
             <span>
@@ -1547,7 +1547,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
       )}
 
       {/* ── Chat Input Footer ── */}
-      <footer className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-slate-100 bg-white p-2 sm:p-2.5 sm:flex-nowrap sm:p-3 overflow-hidden">
+      <footer className="z-10 flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-100 bg-white px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:flex-nowrap sm:px-3 sm:pt-3 sm:pb-[calc(0.75rem+env(safe-area-inset-bottom))] overflow-hidden">
         <form onSubmit={handleSendMessage} className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2 rounded-full border border-transparent bg-slate-100 px-2.5 py-2 sm:px-3 sm:py-2 lg:px-4 transition-all focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100">
           <button
             type="button"
