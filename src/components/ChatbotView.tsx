@@ -882,6 +882,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     if (attachedImage) {
       const ocrBase64 = attachedImage;
       setAttachedImage(null);
+      pushMessage("user", selectedLanguage === "en" ? "Attached Photo" : "फोटो संलग्न", "image", ocrBase64);
       setIsAnalyzingImage(true);
 
       try {
@@ -1181,29 +1182,38 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
                     : "bg-white text-slate-700 rounded-tl-none border border-slate-100/50"
                 }`}
               >
-                {/* Render Rich Message and markdown-style bold tags */}
-                <div className="whitespace-pre-wrap break-words">
-                  {msg.message.split("\n").map((line, lIdx) => {
-                    // Quick check for Markdown titles and lists
-                    if (line.startsWith("### ")) {
-                      return <h3 key={lIdx} className="font-bold text-md mt-1 mb-2 text-slate-900 border-b border-slate-100 pb-1">{line.replace("### ", "")}</h3>;
-                    }
-                    if (line.startsWith("**") && line.endsWith("**")) {
-                      return <strong key={lIdx} className="block font-semibold text-slate-950 mt-1">{line.replace(/\*\*/g, "")}</strong>;
-                    }
-                    // Handle inline bold formatting
-                    const parts = line.split(/(\*\*.*?\*\*)/);
-                    return (
-                      <p key={lIdx} className="mb-1">
-                        {parts.map((part, pIdx) => {
-                          if (part.startsWith("**") && part.endsWith("**")) {
-                            return <strong key={pIdx} className="font-bold text-slate-950">{part.replace(/\*\*/g, "")}</strong>;
-                          }
-                          return part;
-                        })}
-                      </p>
-                    );
-                  })}
+                <div className="space-y-2">
+                  {msg.type === "image" && msg.mediaUrl && (
+                    <img
+                      src={msg.mediaUrl}
+                      alt={msg.message}
+                      className="max-h-64 w-full rounded-xl object-contain"
+                    />
+                  )}
+                  {/* Render Rich Message and markdown-style bold tags */}
+                  <div className="whitespace-pre-wrap break-words">
+                    {msg.message.split("\n").map((line, lIdx) => {
+                      // Quick check for Markdown titles and lists
+                      if (line.startsWith("### ")) {
+                        return <h3 key={lIdx} className="font-bold text-md mt-1 mb-2 text-slate-900 border-b border-slate-100 pb-1">{line.replace("### ", "")}</h3>;
+                      }
+                      if (line.startsWith("**") && line.endsWith("**")) {
+                        return <strong key={lIdx} className="block font-semibold text-slate-950 mt-1">{line.replace(/\*\*/g, "")}</strong>;
+                      }
+                      // Handle inline bold formatting
+                      const parts = line.split(/(\*\*.*?\*\*)/);
+                      return (
+                        <p key={lIdx} className="mb-1">
+                          {parts.map((part, pIdx) => {
+                            if (part.startsWith("**") && part.endsWith("**")) {
+                              return <strong key={pIdx} className="font-bold text-slate-950">{part.replace(/\*\*/g, "")}</strong>;
+                            }
+                            return part;
+                          })}
+                        </p>
+                      );
+                    })}
+                  </div>
                 </div>
                 <span className={`block text-[10px] text-right mt-1.5 ${isUser ? "text-blue-200" : "text-slate-400"}`}>
                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
