@@ -186,7 +186,7 @@ const SEED_TICKETS: Ticket[] = [
       {
         sender: "bot",
         message:
-          "Hi! Welcome to PugArch FSM Support. I can help you resolve common app issues instantly. Please select the type of problem you are facing:\nA — Login & Account\nB — Location, GPS & Geofence\nC — Attendance & Tracking\nD — App Crashes & Performance\nE — Data & Sync\nF — Something else",
+          "Hi! Welcome to PugArch FSM Support. I can help you resolve app issues instantly. Please select the type of problem you are facing:\nA — Login & Account\nB — Location, GPS & Geofence\nC — Attendance & Tracking\nD — App Crashes & Performance\nE — Data & Sync\nF — Something else",
         timestamp: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
       },
       {

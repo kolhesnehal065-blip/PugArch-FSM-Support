@@ -124,6 +124,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
 
   // OCR and media states
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -194,7 +195,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
   const t: Record<string, any> = {
     en: {
       title: "PugArch FSM Support",
-      welcome: "Hi! Welcome to PugArch FSM Support. I can help you resolve common app issues instantly.",
+      welcome: "Hi! Welcome to PugArch FSM Support. I can help you resolve app issues instantly.",
       selectIssue: "Please select the type of problem you are facing:",
       placeholder: "Type your issue or tap mic to speak...",
       wasHelpful: "Was this helpful?",
