@@ -13,6 +13,11 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
+const ISSUE_CATEGORY_BY_PREFIX = Object.values(ISSUES).reduce<Record<string, string>>((acc, issue) => {
+  acc[issue.code.charAt(0)] = issue.category;
+  return acc;
+}, {});
+const KNOWN_ISSUE_CATEGORIES = new Set(Object.values(ISSUES).map((issue) => issue.category));
 
 const asyncHandler =
   (handler: express.RequestHandler): express.RequestHandler =>
@@ -23,6 +28,27 @@ const asyncHandler =
 // Set up JSON body parser with increased limit for base64 images and audio
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
+
+function normalizeAnalyticsCategory(category: string, issueCode?: string | null) {
+  const trimmed = cleanString(category);
+  const codePrefix = cleanString(issueCode || "").charAt(0).toUpperCase();
+
+  if (codePrefix && ISSUE_CATEGORY_BY_PREFIX[codePrefix]) {
+    return ISSUE_CATEGORY_BY_PREFIX[codePrefix];
+  }
+
+  if (KNOWN_ISSUE_CATEGORIES.has(trimmed)) {
+    return trimmed;
+  }
+
+  const prefixedCategory = trimmed.match(/^([A-E])\s*(?:-|—|â€”)\s*(.+)$/i);
+  if (prefixedCategory) {
+    const prefix = prefixedCategory[1].toUpperCase();
+    return ISSUE_CATEGORY_BY_PREFIX[prefix] || prefixedCategory[2].trim();
+  }
+
+  return trimmed;
+}
 
 // ── Gemini AI client (Lazy-Initialized) ──────────────────────────────────────
 let aiClient: GoogleGenAI | null = null;
@@ -960,20 +986,37 @@ app.post("/api/chatbot-interactions", asyncHandler(async (req, res) => {
   const normalizedSessionId = cleanString(sessionId);
   const normalizedLanguage = cleanString(language, "en");
   const normalizedIssueCode = issueCode === null || issueCode === undefined ? null : cleanString(issueCode);
+  const analyticsCategory = normalizeAnalyticsCategory(normalizedCategory, normalizedIssueCode);
   const allowedEventTypes = new Set(["category_selected", "subcategory_selected", "solution_provided"]);
 
+  console.log("[Analytics] Chatbot interaction received", {
+    eventType: normalizedEventType,
+    category: normalizedCategory,
+    normalizedCategory: analyticsCategory,
+    issueCode: normalizedIssueCode,
+    issueTitle: normalizedIssueTitle,
+    sessionId: normalizedSessionId,
+  });
+
   if (!normalizedEventKey || !normalizedEventType || !normalizedCategory || !normalizedIssueTitle || !normalizedSessionId) {
+    console.warn("[Analytics] Chatbot interaction rejected: missing required fields", {
+      eventType: normalizedEventType,
+      category: normalizedCategory,
+      issueTitle: normalizedIssueTitle,
+      sessionId: normalizedSessionId,
+    });
     return res.status(400).json({ error: "eventKey, eventType, category, issueTitle, and sessionId are required." });
   }
 
   if (!allowedEventTypes.has(normalizedEventType)) {
+    console.warn("[Analytics] Chatbot interaction rejected: unsupported event type", { eventType: normalizedEventType });
     return res.status(400).json({ error: "Unsupported chatbot interaction event type." });
   }
 
   const interaction = await dbService.recordChatbotInteraction({
     eventKey: normalizedEventKey,
     eventType: normalizedEventType as any,
-    category: normalizedCategory,
+    category: analyticsCategory,
     issueCode: normalizedIssueCode,
     issueTitle: normalizedIssueTitle,
     userId: userId ? cleanString(userId) : null,
@@ -985,9 +1028,18 @@ app.post("/api/chatbot-interactions", asyncHandler(async (req, res) => {
   });
 
   if (!interaction) {
+    console.log("[Analytics] Chatbot interaction deduped", { eventKey: normalizedEventKey, eventType: normalizedEventType });
     return res.status(200).json({ ok: true, deduped: true });
   }
 
+  console.log("[Analytics] Chatbot interaction inserted", {
+    id: interaction.id,
+    eventType: interaction.eventType,
+    category: interaction.category,
+    issueCode: interaction.issueCode,
+    issueTitle: interaction.issueTitle,
+    ticketCreated: interaction.ticketCreated,
+  });
   res.status(201).json(interaction);
 }));
 
@@ -1433,17 +1485,18 @@ app.get("/api/analytics", asyncHandler(async (req, res) => {
   const dailyTicketMap: Record<string, number> = {};
 
   interactions.forEach((interaction) => {
+    const normalizedInteractionCategory = normalizeAnalyticsCategory(interaction.category, interaction.issueCode);
+
     if (interaction.eventType === "category_selected") {
       eventTypeCounts.category_selected += 1;
+      chatbotCategoryMap[normalizedInteractionCategory] = (chatbotCategoryMap[normalizedInteractionCategory] || 0) + 1;
     } else if (interaction.eventType === "subcategory_selected") {
       eventTypeCounts.subcategory_selected += 1;
+      const issueKey = interaction.issueCode ? `${interaction.issueCode}::${interaction.issueTitle}` : interaction.issueTitle;
+      chatbotSubCategoryMap[issueKey] = (chatbotSubCategoryMap[issueKey] || 0) + 1;
     } else if (interaction.eventType === "solution_provided") {
       eventTypeCounts.solution_provided += 1;
     }
-    chatbotCategoryMap[interaction.category] = (chatbotCategoryMap[interaction.category] || 0) + 1;
-
-    const issueKey = interaction.issueCode ? `${interaction.issueCode}::${interaction.issueTitle}` : interaction.issueTitle;
-    chatbotSubCategoryMap[issueKey] = (chatbotSubCategoryMap[issueKey] || 0) + 1;
 
     if (interaction.issueCode) {
       issueSearchMap[interaction.issueCode] = issueSearchMap[interaction.issueCode] || {
@@ -1522,7 +1575,7 @@ app.get("/api/analytics", asyncHandler(async (req, res) => {
     status: s.status,
   }));
 
-  res.json({
+  const responseBody = {
     metrics: {
       totalTickets: total,
       pendingTickets: pending,
@@ -1551,7 +1604,18 @@ app.get("/api/analytics", asyncHandler(async (req, res) => {
     sourceData: {
       interactions,
     },
+  };
+
+  console.log("[Analytics] API response", {
+    tickets: tickets.length,
+    interactions: interactions.length,
+    categoryRows: chatbotCategoryDistribution.length,
+    subCategoryRows: chatbotSubCategoryDistribution.length,
+    totalCategoriesSelected,
+    totalSubCategoriesSelected,
   });
+
+  res.json(responseBody);
 }));
 
 function registerErrorHandler() {

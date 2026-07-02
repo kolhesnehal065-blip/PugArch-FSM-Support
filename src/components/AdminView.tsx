@@ -87,6 +87,11 @@ const DATE_RANGE_OPTIONS = [
   { value: "lastMonth", label: "Last Month" },
   { value: "custom", label: "Custom Date Range" },
 ];
+const ISSUE_CATEGORY_BY_PREFIX = Object.values(ISSUES).reduce<Record<string, string>>((acc, issue) => {
+  acc[issue.code.charAt(0)] = issue.category;
+  return acc;
+}, {});
+const KNOWN_ISSUE_CATEGORIES = new Set(Object.values(ISSUES).map((issue) => issue.category));
 
 type AnalyticsDateRange = "all" | "today" | "yesterday" | "last7" | "last30" | "thisMonth" | "lastMonth" | "custom";
 
@@ -196,6 +201,40 @@ function matchesLanguage(language: string | null | undefined, selectedLanguage: 
   return selectedLanguage === "all" || normalizeLanguage(language) === selectedLanguage;
 }
 
+function normalizeAnalyticsCategory(category: string | null | undefined, issueCode?: string | null) {
+  const trimmed = (category || "").trim();
+  const codePrefix = (issueCode || "").trim().charAt(0).toUpperCase();
+
+  if (codePrefix && ISSUE_CATEGORY_BY_PREFIX[codePrefix]) {
+    return ISSUE_CATEGORY_BY_PREFIX[codePrefix];
+  }
+
+  if (KNOWN_ISSUE_CATEGORIES.has(trimmed)) {
+    return trimmed;
+  }
+
+  const prefixedCategory = trimmed.match(/^([A-E])\s*(?:-|—|â€”)\s*(.+)$/i);
+  if (prefixedCategory) {
+    const prefix = prefixedCategory[1].toUpperCase();
+    return ISSUE_CATEGORY_BY_PREFIX[prefix] || prefixedCategory[2].trim();
+  }
+
+  return trimmed;
+}
+
+function areAnalyticsFiltersDefault(filters: AnalyticsFilters) {
+  return (
+    filters.search === defaultAnalyticsFilters.search &&
+    filters.dateRange === defaultAnalyticsFilters.dateRange &&
+    filters.customStart === defaultAnalyticsFilters.customStart &&
+    filters.customEnd === defaultAnalyticsFilters.customEnd &&
+    filters.category === defaultAnalyticsFilters.category &&
+    filters.subCategory === defaultAnalyticsFilters.subCategory &&
+    filters.language === defaultAnalyticsFilters.language &&
+    filters.status === defaultAnalyticsFilters.status
+  );
+}
+
 function buildAnalyticsFromSource(tickets: Ticket[], interactions: ChatbotInteraction[], staff: SupportStaff[]) {
   const total = tickets.length;
   const pending = tickets.filter((t) => t.status === "pending").length;
@@ -234,17 +273,18 @@ function buildAnalyticsFromSource(tickets: Ticket[], interactions: ChatbotIntera
   const dailyTicketMap: Record<string, number> = {};
 
   interactions.forEach((interaction) => {
+    const normalizedInteractionCategory = normalizeAnalyticsCategory(interaction.category, interaction.issueCode);
+
     if (interaction.eventType === "category_selected") {
       eventTypeCounts.category_selected += 1;
+      chatbotCategoryMap[normalizedInteractionCategory] = (chatbotCategoryMap[normalizedInteractionCategory] || 0) + 1;
     } else if (interaction.eventType === "subcategory_selected") {
       eventTypeCounts.subcategory_selected += 1;
+      const issueKey = interaction.issueCode ? `${interaction.issueCode}::${interaction.issueTitle}` : interaction.issueTitle;
+      chatbotSubCategoryMap[issueKey] = (chatbotSubCategoryMap[issueKey] || 0) + 1;
     } else if (interaction.eventType === "solution_provided") {
       eventTypeCounts.solution_provided += 1;
     }
-    chatbotCategoryMap[interaction.category] = (chatbotCategoryMap[interaction.category] || 0) + 1;
-
-    const issueKey = interaction.issueCode ? `${interaction.issueCode}::${interaction.issueTitle}` : interaction.issueTitle;
-    chatbotSubCategoryMap[issueKey] = (chatbotSubCategoryMap[issueKey] || 0) + 1;
 
     const searchKey = interaction.issueCode || interaction.issueTitle;
     issueSearchMap[searchKey] = issueSearchMap[searchKey] || {
@@ -376,6 +416,12 @@ export default function AdminView({ onLogout }: AdminViewProps) {
       setStaff(staffRes);
       setAuditLogs(logsRes);
       setAnalytics(analyticsRes);
+      console.log("[Analytics] Dashboard data received", {
+        categoryRows: analyticsRes?.chatbotCategoryDistribution?.length || 0,
+        subCategoryRows: analyticsRes?.chatbotSubCategoryDistribution?.length || 0,
+        sourceInteractions: analyticsRes?.sourceData?.interactions?.length || 0,
+        metrics: analyticsRes?.metrics,
+      });
     } catch (err) {
       console.error("Failed to sync live data:", err);
     } finally {
@@ -635,6 +681,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
     setActiveTab("tickets");
   };
 
+  const hasAnalyticsSourceData = Array.isArray(analytics?.sourceData?.interactions);
   const analyticsInteractions = (analytics?.sourceData?.interactions || []) as ChatbotInteraction[];
   const analyticsSubCategoryOptions = useMemo(() => {
     return Object.values(ISSUES)
@@ -694,10 +741,11 @@ export default function AdminView({ onLogout }: AdminViewProps) {
 
     const filteredInteractionRows = analyticsInteractions.filter((interaction) => {
       const linkedTicketStatus = interaction.ticketId ? ticketStatusById.get(interaction.ticketId) : null;
+      const normalizedInteractionCategory = normalizeAnalyticsCategory(interaction.category, interaction.issueCode);
       return (
         interactionMatchesSearch(interaction) &&
         isWithinDateRange(interaction.createdAt, analyticsFilters) &&
-        (analyticsFilters.category === "all" || interaction.category === analyticsFilters.category) &&
+        (analyticsFilters.category === "all" || normalizedInteractionCategory === analyticsFilters.category) &&
         matchesSubCategory(interaction.issueCode, interaction.issueTitle) &&
         matchesLanguage(interaction.language, analyticsFilters.language) &&
         (analyticsFilters.status === "all" || linkedTicketStatus === analyticsFilters.status)
@@ -710,10 +758,12 @@ export default function AdminView({ onLogout }: AdminViewProps) {
     };
   }, [analyticsFilters, analyticsInteractions, tickets]);
 
-  const filteredAnalytics = useMemo(
-    () => buildAnalyticsFromSource(filteredAnalyticsSource.tickets, filteredAnalyticsSource.interactions, staff),
-    [filteredAnalyticsSource.tickets, filteredAnalyticsSource.interactions, staff]
-  );
+  const filteredAnalytics = useMemo(() => {
+    if (!hasAnalyticsSourceData && analytics && areAnalyticsFiltersDefault(analyticsFilters)) {
+      return analytics;
+    }
+    return buildAnalyticsFromSource(filteredAnalyticsSource.tickets, filteredAnalyticsSource.interactions, staff);
+  }, [analytics, analyticsFilters, filteredAnalyticsSource.tickets, filteredAnalyticsSource.interactions, hasAnalyticsSourceData, staff]);
 
   const updateAnalyticsFilter = <K extends keyof AnalyticsFilters>(key: K, value: AnalyticsFilters[K]) => {
     setAnalyticsFilters((current) => ({

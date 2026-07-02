@@ -28,6 +28,11 @@ import { Ticket, ChatMessage, Issue } from "../shared/types";
 import { ISSUES } from "../shared/issues";
 import { sanitizeContactNumber, validateContactNumber, validateEmailAddress } from "../shared/validation";
 
+const CATEGORY_BY_CODE = Object.values(ISSUES).reduce<Record<string, string>>((acc, issue) => {
+  acc[issue.code.charAt(0)] = issue.category;
+  return acc;
+}, {});
+
 function formatIssueResponse(title: string, solution: string): string {
   return `### ${title}\n\n${solution}`;
 }
@@ -219,8 +224,15 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     createdAt?: string;
   }) => {
     const eventKey = `${chatSessionId}:${payload.eventType}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+    console.log("[Analytics] Chatbot event queued", {
+      eventType: payload.eventType,
+      category: payload.category,
+      issueCode: payload.issueCode ?? null,
+      issueTitle: payload.issueTitle,
+      sessionId: chatSessionId,
+    });
     try {
-      await fetch("/api/chatbot-interactions", {
+      const response = await fetch("/api/chatbot-interactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -236,6 +248,20 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           ticketId: payload.ticketId ?? null,
           createdAt: payload.createdAt || new Date().toISOString(),
         }),
+      });
+      const responseBody = await response.json().catch(() => null);
+      if (!response.ok) {
+        console.error("[Analytics] Chatbot event insert failed", {
+          status: response.status,
+          eventType: payload.eventType,
+          responseBody,
+        });
+        return;
+      }
+      console.log("[Analytics] Chatbot event inserted", {
+        status: response.status,
+        eventType: payload.eventType,
+        responseBody,
       });
     } catch (error) {
       console.error("Failed to record chatbot interaction:", error);
@@ -815,11 +841,12 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
   const handleCategorySelect = (catCode: string, displayLabel?: string) => {
     setShowCategories(false);
     setHasSelectedSubIssue(false);
-    const canonicalCategory = categories.find((c) => c.code === catCode)?.name.en || displayLabel || catCode;
+    const canonicalCategory = CATEGORY_BY_CODE[catCode] || displayLabel || catCode;
     pushMessage(
       "user",
       displayLabel || categories.find(c => c.code === catCode)?.name[selectedLanguage] || catCode
     );
+    console.log("[Analytics] Category selected", { catCode, category: canonicalCategory });
     void recordChatbotInteraction({
       eventType: "category_selected",
       category: canonicalCategory,
@@ -851,6 +878,11 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     setHasSelectedSubIssue(true);
     pushMessage("user", getSubIssueTitle(subCode));
     const canonicalIssue = ISSUES[subCode];
+    console.log("[Analytics] Sub-category selected", {
+      issueCode: subCode,
+      category: canonicalIssue?.category || currentCategory || "General",
+      issueTitle: canonicalIssue?.title || subCode,
+    });
     void recordChatbotInteraction({
       eventType: "subcategory_selected",
       category: canonicalIssue?.category || currentCategory || "General",
