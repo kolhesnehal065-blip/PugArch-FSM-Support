@@ -3,7 +3,7 @@ import path from "path";
 import dotenv from "dotenv";
 import pg from "pg";
 import type { Pool as PgPool } from "pg";
-import type { AuditLog, ChatMessage, SupportStaff, Ticket, User } from "../shared/types.js";
+import type { AuditLog, ChatbotInteraction, ChatMessage, SupportStaff, Ticket, User } from "../shared/types.js";
 
 dotenv.config();
 
@@ -110,6 +110,12 @@ interface LegacyDBStructure {
   tickets: Ticket[];
   auditLogs: AuditLog[];
 }
+
+type ChatbotInteractionInput = Omit<ChatbotInteraction, "id" | "createdAt" | "ticketCreated" | "ticketId"> & {
+  ticketCreated?: boolean;
+  ticketId?: string | null;
+  createdAt?: string;
+};
 
 const DEFAULT_STAFF: SupportStaff[] = [
   {
@@ -400,6 +406,26 @@ async function getDatabase(): Promise<SQLiteDatabase> {
       closedAt TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS chatbot_interactions (
+      id TEXT PRIMARY KEY,
+      eventKey TEXT NOT NULL UNIQUE,
+      eventType TEXT NOT NULL CHECK(eventType IN ('category_selected', 'subcategory_selected', 'solution_provided')),
+      category TEXT NOT NULL,
+      issueCode TEXT,
+      issueTitle TEXT NOT NULL,
+      userId TEXT,
+      sessionId TEXT NOT NULL,
+      language TEXT NOT NULL,
+      ticketCreated INTEGER NOT NULL DEFAULT 0,
+      ticketId TEXT,
+      createdAt TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chatbot_interactions_createdAt ON chatbot_interactions(createdAt);
+    CREATE INDEX IF NOT EXISTS idx_chatbot_interactions_sessionId ON chatbot_interactions(sessionId);
+    CREATE INDEX IF NOT EXISTS idx_chatbot_interactions_category ON chatbot_interactions(category);
+    CREATE INDEX IF NOT EXISTS idx_chatbot_interactions_issueCode ON chatbot_interactions(issueCode);
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
       action TEXT NOT NULL,
@@ -532,6 +558,26 @@ async function initializePostgres(pool: PgPool) {
       "createdAt" TEXT NOT NULL,
       "closedAt" TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS chatbot_interactions (
+      id TEXT PRIMARY KEY,
+      "eventKey" TEXT NOT NULL UNIQUE,
+      "eventType" TEXT NOT NULL CHECK("eventType" IN ('category_selected', 'subcategory_selected', 'solution_provided')),
+      category TEXT NOT NULL,
+      "issueCode" TEXT,
+      "issueTitle" TEXT NOT NULL,
+      "userId" TEXT,
+      "sessionId" TEXT NOT NULL,
+      language TEXT NOT NULL,
+      "ticketCreated" BOOLEAN NOT NULL DEFAULT FALSE,
+      "ticketId" TEXT,
+      "createdAt" TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chatbot_interactions_created_at ON chatbot_interactions("createdAt");
+    CREATE INDEX IF NOT EXISTS idx_chatbot_interactions_session_id ON chatbot_interactions("sessionId");
+    CREATE INDEX IF NOT EXISTS idx_chatbot_interactions_category ON chatbot_interactions(category);
+    CREATE INDEX IF NOT EXISTS idx_chatbot_interactions_issue_code ON chatbot_interactions("issueCode");
 
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
@@ -752,6 +798,23 @@ function mapTicketRow(row: any): Ticket {
 
 function makeId(prefix: string): string {
   return `${prefix}-${Math.floor(100000 + Math.random() * 900000)}`;
+}
+
+function mapChatbotInteractionRow(row: any): ChatbotInteraction {
+  return {
+    id: row.id,
+    eventKey: row.eventKey,
+    eventType: row.eventType,
+    category: row.category,
+    issueCode: row.issueCode ?? null,
+    issueTitle: row.issueTitle,
+    userId: row.userId ?? null,
+    sessionId: row.sessionId,
+    language: row.language,
+    ticketCreated: Boolean(row.ticketCreated),
+    ticketId: row.ticketId ?? null,
+    createdAt: row.createdAt,
+  };
 }
 
 async function addAuditLog(action: string, userId: string, userName: string) {
@@ -1096,6 +1159,115 @@ export const dbService = {
       "System"
     );
     return newTicket;
+  },
+
+  async recordChatbotInteraction(interaction: ChatbotInteractionInput): Promise<ChatbotInteraction | null> {
+    const eventType = interaction.eventType;
+    const createdAt = interaction.createdAt || new Date().toISOString();
+    const ticketCreated = Boolean(interaction.ticketCreated);
+    const ticketId = interaction.ticketId ?? null;
+    const normalized: ChatbotInteraction = {
+      id: makeId("INT"),
+      eventKey: interaction.eventKey,
+      eventType,
+      category: interaction.category,
+      issueCode: interaction.issueCode ?? null,
+      issueTitle: interaction.issueTitle,
+      userId: interaction.userId ?? null,
+      sessionId: interaction.sessionId,
+      language: interaction.language,
+      ticketCreated,
+      ticketId,
+      createdAt,
+    };
+
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const result = await pool.query(
+        `INSERT INTO chatbot_interactions (
+          id, "eventKey", "eventType", category, "issueCode", "issueTitle", "userId",
+          "sessionId", language, "ticketCreated", "ticketId", "createdAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT ("eventKey") DO NOTHING
+        RETURNING *`,
+        [
+          normalized.id,
+          normalized.eventKey,
+          normalized.eventType,
+          normalized.category,
+          normalized.issueCode,
+          normalized.issueTitle,
+          normalized.userId,
+          normalized.sessionId,
+          normalized.language,
+          normalized.ticketCreated,
+          normalized.ticketId,
+          normalized.createdAt,
+        ]
+      );
+
+      return result.rows[0] ? mapChatbotInteractionRow(result.rows[0]) : null;
+    }
+
+    const db = await getDatabase();
+    const result = db.prepare(
+      `INSERT INTO chatbot_interactions (
+        id, eventKey, eventType, category, issueCode, issueTitle, userId,
+        sessionId, language, ticketCreated, ticketId, createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      normalized.id,
+      normalized.eventKey,
+      normalized.eventType,
+      normalized.category,
+      normalized.issueCode,
+      normalized.issueTitle,
+      normalized.userId,
+      normalized.sessionId,
+      normalized.language,
+      normalized.ticketCreated ? 1 : 0,
+      normalized.ticketId,
+      normalized.createdAt
+    );
+
+    if (!result.changes) {
+      return null;
+    }
+
+    return normalized;
+  },
+
+  async markChatbotInteractionsAsTicketed(sessionId: string, ticketId: string): Promise<number> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const result = await pool.query(
+        `UPDATE chatbot_interactions
+         SET "ticketCreated" = TRUE, "ticketId" = $1
+         WHERE "sessionId" = $2`,
+        [ticketId, sessionId]
+      );
+      return Number((result as any).rowCount ?? 0);
+    }
+
+    const db = await getDatabase();
+    const result = db.prepare(
+      `UPDATE chatbot_interactions
+       SET ticketCreated = 1, ticketId = ?
+       WHERE sessionId = ?`
+    ).run(ticketId, sessionId);
+    return Number(result.changes ?? 0);
+  },
+
+  async getChatbotInteractions(): Promise<ChatbotInteraction[]> {
+    if (USE_POSTGRES) {
+      const pool = await getPostgresPool();
+      const result = await pool.query(`SELECT * FROM chatbot_interactions ORDER BY "createdAt" DESC`);
+      return result.rows.map(mapChatbotInteractionRow);
+    }
+
+    const db = await getDatabase();
+    const rows = db.prepare(`SELECT * FROM chatbot_interactions ORDER BY createdAt DESC`).all() as unknown as any[];
+    return rows.map(mapChatbotInteractionRow);
   },
 
   async updateTicket(id: string, updates: Partial<Ticket>, operatorId = "SYSTEM", operatorName = "System"): Promise<Ticket> {

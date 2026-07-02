@@ -82,6 +82,26 @@ const ISSUE_FIELDS: Record<string, { key: string; label: string; prompt: Record<
   ]
 };
 
+const CHAT_SESSION_KEY = "pugarch_chatbot_session_id";
+
+function createChatSessionId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getOrCreateChatSessionId(): string {
+  const existing = localStorage.getItem(CHAT_SESSION_KEY);
+  if (existing) {
+    return existing;
+  }
+
+  const nextSessionId = createChatSessionId();
+  localStorage.setItem(CHAT_SESSION_KEY, nextSessionId);
+  return nextSessionId;
+}
+
 interface ChatbotViewProps {
   onAdminLoginClick: () => void;
 }
@@ -95,6 +115,7 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [showHistoryView, setShowHistoryView] = useState(false);
   const [sessionActive, setSessionActive] = useState(true);
+  const [chatSessionId, setChatSessionId] = useState<string>(() => getOrCreateChatSessionId());
 
   // Active issue & ticket generation states
   const [currentCategory, setCurrentCategory] = useState<string | null>(null);
@@ -185,6 +206,39 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
       }
     } finally {
       setIsSyncingTickets(false);
+    }
+  };
+
+  const recordChatbotInteraction = async (payload: {
+    eventType: "category_selected" | "subcategory_selected" | "solution_provided";
+    category: string;
+    issueCode?: string | null;
+    issueTitle: string;
+    ticketCreated?: boolean;
+    ticketId?: string | null;
+    createdAt?: string;
+  }) => {
+    const eventKey = `${chatSessionId}:${payload.eventType}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      await fetch("/api/chatbot-interactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventKey,
+          eventType: payload.eventType,
+          category: payload.category,
+          issueCode: payload.issueCode ?? null,
+          issueTitle: payload.issueTitle,
+          userId: null,
+          sessionId: chatSessionId,
+          language: selectedLanguage,
+          ticketCreated: Boolean(payload.ticketCreated),
+          ticketId: payload.ticketId ?? null,
+          createdAt: payload.createdAt || new Date().toISOString(),
+        }),
+      });
+    } catch (error) {
+      console.error("Failed to record chatbot interaction:", error);
     }
   };
 
@@ -549,7 +603,8 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           issueCode: code,
           issueTitle: issueTitle,
           conversation: completeConversationForTicket,
-          language: selectedLanguage
+          language: selectedLanguage,
+          sessionId: chatSessionId
         })
       });
 
@@ -692,6 +747,9 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
   // Start new chat / Reset conversation
   const handleResetChat = () => {
     localStorage.removeItem("pugarch_chatbot_chat");
+    const nextSessionId = createChatSessionId();
+    localStorage.setItem(CHAT_SESSION_KEY, nextSessionId);
+    setChatSessionId(nextSessionId);
     setCurrentCategory(null);
     setHasSelectedSubIssue(false);
     setAwaitingFeedback(null);
@@ -716,6 +774,14 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
 
   // Trigger interactive field collection or standard feedback loop
   const handleIssueMatch = (issueCode: string, issueTitle: string) => {
+    const issueCategory = ISSUES[issueCode]?.category || currentCategory || "General";
+    void recordChatbotInteraction({
+      eventType: "solution_provided",
+      category: issueCategory,
+      issueCode,
+      issueTitle,
+    });
+
     const interactiveCodes = ["A1", "B2", "B3", "C1"];
     if (interactiveCodes.includes(issueCode)) {
       setAwaitingFeedback(null);
@@ -749,10 +815,16 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
   const handleCategorySelect = (catCode: string, displayLabel?: string) => {
     setShowCategories(false);
     setHasSelectedSubIssue(false);
+    const canonicalCategory = categories.find((c) => c.code === catCode)?.name.en || displayLabel || catCode;
     pushMessage(
       "user",
       displayLabel || categories.find(c => c.code === catCode)?.name[selectedLanguage] || catCode
     );
+    void recordChatbotInteraction({
+      eventType: "category_selected",
+      category: canonicalCategory,
+      issueTitle: canonicalCategory,
+    });
 
     if (catCode === "F") {
       setIsTyping(true);
@@ -778,6 +850,13 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
   const handleSubIssueSelect = async (subCode: string) => {
     setHasSelectedSubIssue(true);
     pushMessage("user", getSubIssueTitle(subCode));
+    const canonicalIssue = ISSUES[subCode];
+    void recordChatbotInteraction({
+      eventType: "subcategory_selected",
+      category: canonicalIssue?.category || currentCategory || "General",
+      issueCode: subCode,
+      issueTitle: canonicalIssue?.title || subCode,
+    });
 
     setIsTyping(true);
     try {
@@ -1057,8 +1136,8 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
     const completeConversationForTicket = [...messages, { sender: "user" as const, message: `Escalation Details: Name: ${escalationDetails.name}, Phone: ${escalationDetails.phone}, Email: ${escalationDetails.email}, Company: ${escalationDetails.companyName}, Job: ${escalationDetails.designation}. Description: ${escalationDetails.description}`, timestamp: new Date().toISOString() }];
 
     try {
-      const res = await fetch("/api/tickets", {
-        method: "POST",
+    const res = await fetch("/api/tickets", {
+      method: "POST",
           headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: escalationDetails.name.trim(),
@@ -1069,7 +1148,8 @@ export default function ChatbotView({ onAdminLoginClick }: ChatbotViewProps) {
           issueCode: awaitingFeedback || "NONE",
           issueTitle: feedbackPrompt || escalationDetails.description || "Unresolved technical issue",
           conversation: completeConversationForTicket,
-          language: selectedLanguage
+          language: selectedLanguage,
+          sessionId: chatSessionId,
         })
       });
 

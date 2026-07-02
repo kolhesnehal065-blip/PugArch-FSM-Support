@@ -45,6 +45,23 @@ export interface Ticket {
   closedAt: string | null;
 }
 
+export type ChatbotInteractionEventType = "category_selected" | "subcategory_selected" | "solution_provided";
+
+export interface ChatbotInteraction {
+  id: string;
+  eventKey: string;
+  eventType: ChatbotInteractionEventType;
+  category: string;
+  issueCode: string | null;
+  issueTitle: string;
+  userId: string | null;
+  sessionId: string;
+  language: string;
+  ticketCreated: boolean;
+  ticketId: string | null;
+  createdAt: string;
+}
+
 export interface AuditLog {
   id: string;
   action: string;

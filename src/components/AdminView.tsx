@@ -2,11 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import { 
   BarChart, 
   Bar, 
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
   XAxis, 
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  Legend, 
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -50,6 +53,23 @@ interface AdminViewProps {
 }
 
 const TICKET_LIST_STATE_KEY = "pugarch_ticket_list_state";
+const MAX_CATEGORY_LABEL = 16;
+const MAX_TOP_ISSUE_LABEL = 28;
+
+function truncateAxisLabel(value: string, maxLength: number) {
+  if (!value) {
+    return "";
+  }
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+function formatDailyLabel(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 function getTicketIdFromPath() {
   const match = window.location.pathname.match(/^\/admin\/tickets\/([^/]+)$/);
@@ -369,10 +389,17 @@ export default function AdminView({ onLogout }: AdminViewProps) {
     pendingTickets: 0,
     activeTickets: 0,
     closedTickets: 0,
-    avgResolutionTimeHrs: 0.0
+    avgResolutionTimeHrs: 0.0,
+    totalChatbotQueries: 0,
+    totalCategoriesSelected: 0,
+    totalSubCategoriesSelected: 0,
+    totalSolutionsProvided: 0,
+    totalTicketsGenerated: 0,
+    ticketConversionRate: 0,
   };
 
   const pieColors = ["#EF4444", "#F59E0B", "#10B981"];
+  const maxStaffTickets = Math.max(1, ...(analytics?.staffLoad?.map((item: any) => item.tickets || 0) || [1]));
 
   // Filtered Tickets
   const filteredTickets = tickets.filter((t) => {
@@ -617,27 +644,49 @@ export default function AdminView({ onLogout }: AdminViewProps) {
         </header>
 
         {/* Dynamic Inner Panel Viewports */}
-        <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 lg:p-4 lg:p-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 sm:p-3 lg:p-4 lg:p-6">
           <AnimatePresence mode="wait">
             
             {/* ── TAB 1: DASHBOARD & RECHARTS ── */}
             {activeTab === "dashboard" && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-5 lg:space-y-6 min-w-0">
                 {/* Metric Summary Grid */}
-                <div className="grid grid-cols-1 gap-2.5 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 xl:gap-4">
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 xl:gap-4">
                   {[
                     { label: "Total Tickets", val: metrics.totalTickets, icon: TicketIcon, textStyle: "text-slate-800" },
                     { label: "Pending", val: metrics.pendingTickets, icon: AlertTriangle, textStyle: "text-red-600" },
                     { label: "In Investigation", val: metrics.activeTickets, icon: Clock, textStyle: "text-amber-600" },
                     { label: "Closed / Resolved", val: metrics.closedTickets, icon: CheckCircle2, textStyle: "text-green-600" },
-                    { label: "Avg Resolution Time", val: `${metrics.avgResolutionTimeHrs}h`, icon: Sliders, textStyle: "text-slate-800" }
+                    { label: "Avg Resolution Time", val: `${metrics.avgResolutionTimeHrs}h`, icon: Sliders, textStyle: "text-slate-800" },
+                    { label: "Ticket Conversion Rate", val: `${metrics.ticketConversionRate}%`, icon: CheckCircle, textStyle: "text-blue-700" }
                   ].map((stat, i) => {
                     const StatIcon = stat.icon;
                     return (
-                      <div key={i} className="bg-white border border-slate-200/80 p-3 sm:p-4 rounded-xl flex items-center justify-between gap-2 sm:gap-3 shadow-sm">
-                        <div>
-                          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">{stat.label}</span>
-                          <span className={`text-lg sm:text-xl font-extrabold tracking-tight block ${stat.textStyle}`}>{stat.val}</span>
+                      <div key={i} className="bg-white border border-slate-200/80 p-3 sm:p-4 rounded-xl flex min-h-[92px] items-center justify-between gap-2 sm:gap-3 shadow-sm">
+                        <div className="min-w-0">
+                          <span className="block text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1 leading-3">{stat.label}</span>
+                          <span className={`block text-lg sm:text-xl font-extrabold tracking-tight ${stat.textStyle} break-words leading-none`}>{stat.val}</span>
+                        </div>
+                        <StatIcon className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 opacity-80" />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 xl:gap-4">
+                  {[
+                    { label: "Total Chatbot Queries", val: metrics.totalChatbotQueries, icon: Search, textStyle: "text-slate-800" },
+                    { label: "Total Categories Selected", val: metrics.totalCategoriesSelected, icon: LayoutDashboard, textStyle: "text-blue-700" },
+                    { label: "Total Sub-categories Selected", val: metrics.totalSubCategoriesSelected, icon: ChevronRight, textStyle: "text-indigo-700" },
+                    { label: "Total AI Solutions Provided", val: metrics.totalSolutionsProvided, icon: CheckCircle2, textStyle: "text-emerald-700" },
+                    { label: "Total Tickets Raised", val: metrics.totalTicketsGenerated, icon: TicketIcon, textStyle: "text-slate-800" }
+                  ].map((stat, i) => {
+                    const StatIcon = stat.icon;
+                    return (
+                      <div key={i} className="bg-white border border-slate-200/80 p-3 sm:p-4 rounded-xl flex min-h-[92px] items-center justify-between gap-2 sm:gap-3 shadow-sm">
+                        <div className="min-w-0">
+                          <span className="block text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1 leading-3">{stat.label}</span>
+                          <span className={`block text-lg sm:text-xl font-extrabold tracking-tight ${stat.textStyle} break-words leading-none`}>{stat.val}</span>
                         </div>
                         <StatIcon className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 opacity-80" />
                       </div>
@@ -646,22 +695,31 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                 </div>
 
                 {/* Live Charts Dashboard using Recharts */}
-                <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:gap-6">
+                <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:gap-6 min-w-0">
                   {/* Category Distribution Bar Chart */}
-                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm min-w-0">
+                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-2xl shadow-sm min-w-0 overflow-hidden">
                     <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
                       <Sliders className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                       Incoming Issues by Category
                     </h3>
-                    <div className="h-56 sm:h-64">
+                    <div className="h-72 sm:h-80">
                       {analytics?.categoryDistribution?.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={analytics.categoryDistribution}>
+                          <BarChart data={analytics.categoryDistribution} layout="vertical" margin={{ top: 8, right: 18, left: 16, bottom: 8 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                            <XAxis dataKey="name" stroke="#64748B" fontSize={10} tickLine={false} />
-                            <YAxis stroke="#64748B" fontSize={11} />
+                            <XAxis type="number" stroke="#64748B" fontSize={11} tickLine={false} />
+                            <YAxis
+                              type="category"
+                              dataKey="name"
+                              width={170}
+                              stroke="#64748B"
+                              fontSize={10}
+                              tickLine={false}
+                              interval={0}
+                              tickFormatter={(value) => truncateAxisLabel(String(value), MAX_CATEGORY_LABEL)}
+                            />
                             <Tooltip contentStyle={{ backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "8px" }} />
-                            <Bar dataKey="value" name="Tickets" fill="#2563EB" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="value" name="Tickets" fill="#2563EB" radius={[0, 8, 8, 0]} barSize={18} />
                           </BarChart>
                         </ResponsiveContainer>
                       ) : (
@@ -671,24 +729,24 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                   </div>
 
                   {/* Ticket Status Distribution Pie Chart */}
-                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm min-w-0">
+                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-2xl shadow-sm min-w-0 overflow-hidden">
                     <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
                       <Sliders className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                       Operational Resolution Statuses
                     </h3>
-                    <div className="min-h-56 sm:min-h-64 flex items-center">
+                    <div className="min-h-72 sm:min-h-80 flex items-center">
                       {analytics?.statusDistribution?.length > 0 ? (
-                        <div className="w-full flex flex-col gap-2.5 sm:gap-3 sm:flex-row">
-                          <div className="h-48 w-full sm:h-56 sm:h-64 sm:w-2/3">
+                        <div className="w-full flex flex-col gap-4 xl:flex-row">
+                          <div className="h-56 w-full xl:h-72 xl:w-[68%]">
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart>
                                 <Pie
                                   data={analytics.statusDistribution}
                                   cx="50%"
                                   cy="50%"
-                                  innerRadius={60}
-                                  outerRadius={80}
-                                  paddingAngle={5}
+                                  innerRadius={58}
+                                  outerRadius={86}
+                                  paddingAngle={4}
                                   dataKey="value"
                                 >
                                   {analytics.statusDistribution.map((entry: any, index: number) => (
@@ -699,11 +757,13 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                               </PieChart>
                             </ResponsiveContainer>
                           </div>
-                          <div className="flex w-full flex-col justify-center space-y-2 sm:space-y-3 sm:w-1/3 sm:pl-2">
+                          <div className="flex w-full flex-col justify-center gap-2 xl:w-[32%] xl:pl-2">
                             {analytics.statusDistribution.map((entry: any, index: number) => (
-                              <div key={index} className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
-                                <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full" style={{ backgroundColor: pieColors[index] }}></span>
-                                <span className="text-slate-700 font-semibold">{entry.name}:</span>
+                              <div key={index} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-[10px] sm:text-xs">
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full" style={{ backgroundColor: pieColors[index] }}></span>
+                                  <span className="min-w-0 truncate font-semibold text-slate-700">{entry.name}</span>
+                                </span>
                                 <span className="font-mono text-slate-500">{entry.value}</span>
                               </div>
                             ))}
@@ -716,22 +776,177 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:gap-6 min-w-0">
+                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-2xl shadow-sm min-w-0 overflow-hidden">
+                    <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
+                      <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
+                      Category-wise Query Count
+                    </h3>
+                    <div className="h-72 sm:h-80">
+                      {analytics?.chatbotCategoryDistribution?.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={analytics.chatbotCategoryDistribution} layout="vertical" margin={{ top: 8, right: 18, left: 16, bottom: 8 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                            <XAxis type="number" stroke="#64748B" fontSize={11} tickLine={false} />
+                            <YAxis
+                              type="category"
+                              dataKey="name"
+                              width={190}
+                              stroke="#64748B"
+                              fontSize={10}
+                              tickLine={false}
+                              interval={0}
+                              tickFormatter={(value) => truncateAxisLabel(String(value), MAX_CATEGORY_LABEL)}
+                            />
+                            <Tooltip contentStyle={{ backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "8px" }} />
+                            <Bar dataKey="value" name="Queries" fill="#2563EB" radius={[0, 8, 8, 0]} barSize={18} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-xs text-slate-400">No chatbot category metrics recorded yet.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-2xl shadow-sm min-w-0 overflow-hidden">
+                    <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
+                      <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
+                      Sub-category-wise Query Count
+                    </h3>
+                    <div className="h-[26rem] sm:h-[30rem]">
+                      {analytics?.chatbotSubCategoryDistribution?.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={analytics.chatbotSubCategoryDistribution} layout="vertical" margin={{ top: 8, right: 20, left: 12, bottom: 8 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                            <XAxis type="number" stroke="#64748B" fontSize={11} tickLine={false} />
+                            <YAxis
+                              type="category"
+                              dataKey="name"
+                              width={240}
+                              stroke="#64748B"
+                              fontSize={10}
+                              tickLine={false}
+                              interval={0}
+                              tickFormatter={(value) => truncateAxisLabel(String(value), MAX_TOP_ISSUE_LABEL)}
+                            />
+                            <Tooltip contentStyle={{ backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "8px" }} />
+                            <Bar dataKey="value" name="Queries" fill="#0F766E" radius={[0, 8, 8, 0]} barSize={16} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-xs text-slate-400">No sub-category metrics recorded yet.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:gap-6 min-w-0">
+                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-2xl shadow-sm min-w-0 overflow-hidden">
+                    <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
+                      <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
+                      Daily Chatbot Interactions
+                    </h3>
+                    <div className="h-72 sm:h-80">
+                      {analytics?.dailyChatbotInteractions?.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={analytics.dailyChatbotInteractions} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="chatbotAreaFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.35} />
+                                <stop offset="95%" stopColor="#7C3AED" stopOpacity={0.02} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                            <XAxis dataKey="date" stroke="#64748B" fontSize={10} tickLine={false} tickFormatter={formatDailyLabel} interval="preserveStartEnd" />
+                            <YAxis stroke="#64748B" fontSize={11} width={36} />
+                            <Tooltip contentStyle={{ backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "8px" }} labelFormatter={formatDailyLabel} />
+                            <Area type="monotone" dataKey="interactions" name="Interactions" stroke="#7C3AED" fill="url(#chatbotAreaFill)" strokeWidth={2.5} dot={{ r: 3, fill: "#7C3AED", strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-xs text-slate-400">No daily interaction data recorded yet.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-2xl shadow-sm min-w-0 overflow-hidden">
+                    <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
+                      <TicketIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
+                      Daily Ticket Generation
+                    </h3>
+                    <div className="h-72 sm:h-80">
+                      {analytics?.dailyTicketGeneration?.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={analytics.dailyTicketGeneration} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                            <XAxis dataKey="date" stroke="#64748B" fontSize={10} tickLine={false} tickFormatter={formatDailyLabel} interval="preserveStartEnd" />
+                            <YAxis stroke="#64748B" fontSize={11} width={36} />
+                            <Tooltip contentStyle={{ backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "8px" }} labelFormatter={formatDailyLabel} />
+                            <Line type="monotone" dataKey="tickets" name="Tickets" stroke="#DC2626" strokeWidth={2.5} dot={{ r: 3, fill: "#DC2626", strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-xs text-slate-400">No daily ticket data recorded yet.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-2xl shadow-sm min-w-0 overflow-hidden">
+                  <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
+                    <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
+                    Top 10 Most Searched Issues
+                  </h3>
+                  <div className="h-[26rem] sm:h-[30rem]">
+                    {analytics?.topSearchedIssues?.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={analytics.topSearchedIssues} layout="vertical" margin={{ top: 8, right: 20, left: 12, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                          <XAxis type="number" stroke="#64748B" fontSize={11} tickLine={false} />
+                          <YAxis
+                            type="category"
+                            dataKey="name"
+                            width={300}
+                            stroke="#64748B"
+                            fontSize={10}
+                            tickLine={false}
+                            interval={0}
+                            tickFormatter={(value) => truncateAxisLabel(String(value), MAX_TOP_ISSUE_LABEL)}
+                          />
+                          <Tooltip contentStyle={{ backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "8px" }} />
+                          <Bar dataKey="value" name="Searches" fill="#2563EB" radius={[0, 8, 8, 0]} barSize={14} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-xs text-slate-400">No searched issue data recorded yet.</div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Bottom Staff Load list */}
-                <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-xl shadow-sm">
+                <div className="bg-white border border-slate-200/80 p-3 sm:p-4 lg:p-5 rounded-2xl shadow-sm min-w-0">
                   <h3 className="font-bold text-[10px] sm:text-xs uppercase tracking-wider text-slate-700 mb-3 sm:mb-4 flex items-center gap-1.5 sm:gap-2">
                     <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600" />
                     Support Engineer Dispatch & Load Balancing
                   </h3>
-                  <div className="grid grid-cols-1 gap-2.5 sm:gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
                     {analytics?.staffLoad?.map((staffItem: any, index: number) => (
-                      <div key={index} className="bg-slate-50 border border-slate-100 p-3 sm:p-4 rounded-xl flex items-center justify-between">
-                        <div>
-                          <span className="font-bold text-[10px] sm:text-xs text-slate-800 block">{staffItem.name}</span>
-                          <span className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-mono mt-0.5 block">Status: {staffItem.status}</span>
+                      <div key={index} className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3 sm:p-4 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="block truncate text-[10px] sm:text-xs font-bold text-slate-800">{staffItem.name}</span>
+                            <span className="mt-0.5 block text-[9px] sm:text-[10px] uppercase font-mono text-slate-400">Status: {staffItem.status}</span>
+                          </div>
+                          <div className="rounded-xl bg-white px-2.5 py-1.5 text-right shadow-sm">
+                            <span className="block text-base sm:text-lg font-black text-blue-600 leading-none">{staffItem.tickets}</span>
+                            <span className="block text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-slate-400">Tickets</span>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-base sm:text-lg font-black text-blue-600 block">{staffItem.tickets}</span>
-                          <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold uppercase tracking-wider">Active Tickets</span>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-500"
+                            style={{ width: `${Math.max(8, (staffItem.tickets / maxStaffTickets) * 100)}%` }}
+                          />
                         </div>
                       </div>
                     ))}

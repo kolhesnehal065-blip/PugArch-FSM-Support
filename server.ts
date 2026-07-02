@@ -938,6 +938,59 @@ Return ONLY the raw JSON. No markdown wrappers.`;
 });
 
 // 4. Ticket Management Routes
+app.post("/api/chatbot-interactions", asyncHandler(async (req, res) => {
+  const {
+    eventKey,
+    eventType,
+    category,
+    issueCode,
+    issueTitle,
+    userId,
+    sessionId,
+    language,
+    ticketCreated,
+    ticketId,
+    createdAt,
+  } = req.body ?? {};
+
+  const normalizedEventKey = cleanString(eventKey);
+  const normalizedEventType = cleanString(eventType);
+  const normalizedCategory = cleanString(category);
+  const normalizedIssueTitle = cleanString(issueTitle);
+  const normalizedSessionId = cleanString(sessionId);
+  const normalizedLanguage = cleanString(language, "en");
+  const normalizedIssueCode = issueCode === null || issueCode === undefined ? null : cleanString(issueCode);
+  const allowedEventTypes = new Set(["category_selected", "subcategory_selected", "solution_provided"]);
+
+  if (!normalizedEventKey || !normalizedEventType || !normalizedCategory || !normalizedIssueTitle || !normalizedSessionId) {
+    return res.status(400).json({ error: "eventKey, eventType, category, issueTitle, and sessionId are required." });
+  }
+
+  if (!allowedEventTypes.has(normalizedEventType)) {
+    return res.status(400).json({ error: "Unsupported chatbot interaction event type." });
+  }
+
+  const interaction = await dbService.recordChatbotInteraction({
+    eventKey: normalizedEventKey,
+    eventType: normalizedEventType as any,
+    category: normalizedCategory,
+    issueCode: normalizedIssueCode,
+    issueTitle: normalizedIssueTitle,
+    userId: userId ? cleanString(userId) : null,
+    sessionId: normalizedSessionId,
+    language: normalizedLanguage,
+    ticketCreated: Boolean(ticketCreated),
+    ticketId: ticketId ? cleanString(ticketId) : null,
+    createdAt: createdAt ? cleanString(createdAt) : undefined,
+  });
+
+  if (!interaction) {
+    return res.status(200).json({ ok: true, deduped: true });
+  }
+
+  res.status(201).json(interaction);
+}));
+
 app.get("/api/tickets", asyncHandler(async (req, res) => {
   const tickets = await dbService.getTickets();
   res.json(tickets);
@@ -954,6 +1007,7 @@ app.post("/api/tickets", async (req, res) => {
     issueTitle,
     conversation,
     language,
+    sessionId,
   } = req.body;
 
   const userName = cleanString(name);
@@ -998,6 +1052,11 @@ app.post("/api/tickets", async (req, res) => {
       resolutionNotes: null,
       language: cleanString(language, "en"),
     });
+
+    const normalizedSessionId = cleanString(sessionId);
+    if (normalizedSessionId) {
+      await dbService.markChatbotInteractionsAsTicketed(normalizedSessionId, ticket.id);
+    }
 
     // ── HTML Email Generation & Alerting ─────────────────────────────────────
     const conversationHTML = ticket.conversation
@@ -1324,6 +1383,7 @@ app.get("/api/audit-logs", asyncHandler(async (req, res) => {
 app.get("/api/analytics", asyncHandler(async (req, res) => {
   const tickets = await dbService.getTickets();
   const staff = await dbService.getStaff();
+  const interactions = await dbService.getChatbotInteractions();
 
   const total = tickets.length;
   const pending = tickets.filter((t) => t.status === "pending").length;
@@ -1361,10 +1421,100 @@ app.get("/api/analytics", asyncHandler(async (req, res) => {
     }
   });
 
+  const chatbotCategoryMap: Record<string, number> = {};
+  const chatbotSubCategoryMap: Record<string, number> = {};
+  const issueSearchMap: Record<string, { name: string; count: number }> = {};
+  const eventTypeCounts = {
+    category_selected: 0,
+    subcategory_selected: 0,
+    solution_provided: 0,
+  };
+  const dailyChatbotMap: Record<string, number> = {};
+  const dailyTicketMap: Record<string, number> = {};
+
+  interactions.forEach((interaction) => {
+    if (interaction.eventType === "category_selected") {
+      eventTypeCounts.category_selected += 1;
+    } else if (interaction.eventType === "subcategory_selected") {
+      eventTypeCounts.subcategory_selected += 1;
+    } else if (interaction.eventType === "solution_provided") {
+      eventTypeCounts.solution_provided += 1;
+    }
+    chatbotCategoryMap[interaction.category] = (chatbotCategoryMap[interaction.category] || 0) + 1;
+
+    const issueKey = interaction.issueCode ? `${interaction.issueCode}::${interaction.issueTitle}` : interaction.issueTitle;
+    chatbotSubCategoryMap[issueKey] = (chatbotSubCategoryMap[issueKey] || 0) + 1;
+
+    if (interaction.issueCode) {
+      issueSearchMap[interaction.issueCode] = issueSearchMap[interaction.issueCode] || {
+        name: `${interaction.issueCode} - ${interaction.issueTitle}`,
+        count: 0,
+      };
+      issueSearchMap[interaction.issueCode].count += 1;
+    } else {
+      issueSearchMap[interaction.issueTitle] = issueSearchMap[interaction.issueTitle] || {
+        name: interaction.issueTitle,
+        count: 0,
+      };
+      issueSearchMap[interaction.issueTitle].count += 1;
+    }
+
+    const dayKey = new Date(interaction.createdAt).toISOString().slice(0, 10);
+    dailyChatbotMap[dayKey] = (dailyChatbotMap[dayKey] || 0) + 1;
+  });
+
+  tickets.forEach((ticket) => {
+    const dayKey = new Date(ticket.createdAt).toISOString().slice(0, 10);
+    dailyTicketMap[dayKey] = (dailyTicketMap[dayKey] || 0) + 1;
+  });
+
   const categoryDistribution = Object.keys(categoryMap).map((cat) => ({
     name: cat,
     value: categoryMap[cat],
   }));
+
+  const chatbotCategoryDistribution = Object.keys(chatbotCategoryMap)
+    .sort((a, b) => chatbotCategoryMap[b] - chatbotCategoryMap[a])
+    .map((cat) => ({
+      name: cat,
+      value: chatbotCategoryMap[cat],
+    }));
+
+  const chatbotSubCategoryDistribution = Object.keys(chatbotSubCategoryMap)
+    .sort((a, b) => chatbotSubCategoryMap[b] - chatbotSubCategoryMap[a])
+    .map((key) => ({
+      name: key,
+      value: chatbotSubCategoryMap[key],
+    }));
+
+  const topSearchedIssues = Object.values(issueSearchMap)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+    .map((entry) => ({
+      name: entry.name,
+      value: entry.count,
+    }));
+
+  const dailyChatbotInteractions = Object.keys(dailyChatbotMap)
+    .sort()
+    .map((date) => ({
+      date,
+      interactions: dailyChatbotMap[date],
+    }));
+
+  const dailyTicketGeneration = Object.keys(dailyTicketMap)
+    .sort()
+    .map((date) => ({
+      date,
+      tickets: dailyTicketMap[date],
+    }));
+
+  const totalChatbotQueries = interactions.length;
+  const totalCategoriesSelected = eventTypeCounts.category_selected;
+  const totalSubCategoriesSelected = eventTypeCounts.subcategory_selected;
+  const totalSolutionsProvided = eventTypeCounts.solution_provided;
+  const totalTicketsGenerated = tickets.length;
+  const ticketConversionRate = totalChatbotQueries > 0 ? Number(((totalTicketsGenerated / totalChatbotQueries) * 100).toFixed(1)) : 0;
 
   const staffLoad = staff.map((s) => ({
     name: s.name,
@@ -1379,8 +1529,19 @@ app.get("/api/analytics", asyncHandler(async (req, res) => {
       activeTickets: assigned,
       closedTickets: closed,
       avgResolutionTimeHrs: parseFloat(avgResolutionTime),
+      totalChatbotQueries,
+      totalCategoriesSelected,
+      totalSubCategoriesSelected,
+      totalSolutionsProvided,
+      totalTicketsGenerated,
+      ticketConversionRate,
     },
     categoryDistribution,
+    chatbotCategoryDistribution,
+    chatbotSubCategoryDistribution,
+    topSearchedIssues,
+    dailyChatbotInteractions,
+    dailyTicketGeneration,
     statusDistribution: [
       { name: "Pending", value: pending, color: "#EF4444" },
       { name: "Assigned", value: assigned, color: "#F59E0B" },
