@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   BarChart, 
   Bar, 
@@ -44,7 +44,8 @@ import {
   Menu,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { Ticket, User, SupportStaff, AuditLog } from "../shared/types";
+import { Ticket, User, SupportStaff, AuditLog, ChatbotInteraction } from "../shared/types";
+import { ISSUES } from "../shared/issues";
 import { sanitizeContactNumber, validateContactNumber, validateEmailAddress } from "../shared/validation";
 import TicketDetailsPage from "./TicketDetailsPage";
 
@@ -53,8 +54,63 @@ interface AdminViewProps {
 }
 
 const TICKET_LIST_STATE_KEY = "pugarch_ticket_list_state";
+const ANALYTICS_FILTER_STATE_KEY = "pugarch_analytics_filter_state";
 const MAX_CATEGORY_LABEL = 16;
 const MAX_TOP_ISSUE_LABEL = 28;
+const ANALYTICS_CATEGORIES = [
+  "Login & Account",
+  "Location, GPS & Geofence",
+  "Attendance & Tracking",
+  "App Crashes & Performance",
+  "Data & Sync",
+];
+const LANGUAGE_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "en", label: "English" },
+  { value: "hi", label: "Hindi" },
+  { value: "mr", label: "Marathi" },
+  { value: "or", label: "Odia" },
+];
+const STATUS_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "assigned", label: "Assigned" },
+  { value: "closed", label: "Closed" },
+];
+const DATE_RANGE_OPTIONS = [
+  { value: "all", label: "All Time" },
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "last7", label: "Last 7 Days" },
+  { value: "last30", label: "Last 30 Days" },
+  { value: "thisMonth", label: "This Month" },
+  { value: "lastMonth", label: "Last Month" },
+  { value: "custom", label: "Custom Date Range" },
+];
+
+type AnalyticsDateRange = "all" | "today" | "yesterday" | "last7" | "last30" | "thisMonth" | "lastMonth" | "custom";
+
+type AnalyticsFilters = {
+  search: string;
+  dateRange: AnalyticsDateRange;
+  customStart: string;
+  customEnd: string;
+  category: string;
+  subCategory: string;
+  language: string;
+  status: Ticket["status"] | "all";
+};
+
+const defaultAnalyticsFilters: AnalyticsFilters = {
+  search: "",
+  dateRange: "all",
+  customStart: "",
+  customEnd: "",
+  category: "all",
+  subCategory: "all",
+  language: "all",
+  status: "all",
+};
 
 function truncateAxisLabel(value: string, maxLength: number) {
   if (!value) {
@@ -69,6 +125,180 @@ function formatDailyLabel(value: string) {
     return value;
   }
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function getStartOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function getDateRangeBounds(range: AnalyticsDateRange, customStart: string, customEnd: string) {
+  const now = new Date();
+  const today = getStartOfDay(now);
+  let start: Date | null = null;
+  let end: Date | null = null;
+
+  if (range === "today") {
+    start = today;
+    end = new Date(today);
+    end.setDate(end.getDate() + 1);
+  } else if (range === "yesterday") {
+    end = today;
+    start = new Date(today);
+    start.setDate(start.getDate() - 1);
+  } else if (range === "last7") {
+    start = new Date(today);
+    start.setDate(start.getDate() - 6);
+  } else if (range === "last30") {
+    start = new Date(today);
+    start.setDate(start.getDate() - 29);
+  } else if (range === "thisMonth") {
+    start = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else if (range === "lastMonth") {
+    start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    end = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else if (range === "custom") {
+    start = customStart ? getStartOfDay(new Date(customStart)) : null;
+    if (customEnd) {
+      end = getStartOfDay(new Date(customEnd));
+      end.setDate(end.getDate() + 1);
+    }
+  }
+
+  return { start, end };
+}
+
+function isWithinDateRange(createdAt: string, filters: AnalyticsFilters) {
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) {
+    return false;
+  }
+
+  const { start, end } = getDateRangeBounds(filters.dateRange, filters.customStart, filters.customEnd);
+  if (start && created < start) {
+    return false;
+  }
+  if (end && created >= end) {
+    return false;
+  }
+  return true;
+}
+
+function normalizeLanguage(language: string | null | undefined) {
+  const normalized = (language || "").toLowerCase().trim();
+  if (["english", "en-us", "en_in", "en-in"].includes(normalized)) return "en";
+  if (["hindi", "hin"].includes(normalized)) return "hi";
+  if (["marathi", "ma"].includes(normalized)) return "mr";
+  if (["odia", "oriya", "od"].includes(normalized)) return "or";
+  return normalized;
+}
+
+function matchesLanguage(language: string | null | undefined, selectedLanguage: string) {
+  return selectedLanguage === "all" || normalizeLanguage(language) === selectedLanguage;
+}
+
+function buildAnalyticsFromSource(tickets: Ticket[], interactions: ChatbotInteraction[], staff: SupportStaff[]) {
+  const total = tickets.length;
+  const pending = tickets.filter((t) => t.status === "pending").length;
+  const assigned = tickets.filter((t) => t.status === "assigned").length;
+  const closed = tickets.filter((t) => t.status === "closed").length;
+
+  let closedWithResolutionTime = 0;
+  let totalResolutionHours = 0;
+  tickets.forEach((t) => {
+    if (t.status === "closed" && t.closedAt) {
+      const createdTime = new Date(t.createdAt).getTime();
+      const closedTime = new Date(t.closedAt).getTime();
+      if (!Number.isNaN(createdTime) && !Number.isNaN(closedTime)) {
+        totalResolutionHours += (closedTime - createdTime) / (1000 * 60 * 60);
+        closedWithResolutionTime++;
+      }
+    }
+  });
+
+  const categoryMap: Record<string, number> = {};
+  const statusMap: Record<Ticket["status"], number> = { pending: 0, assigned: 0, closed: 0 };
+  const staffLoadMap: Record<string, number> = {};
+  tickets.forEach((t) => {
+    categoryMap[t.category] = (categoryMap[t.category] || 0) + 1;
+    statusMap[t.status] = (statusMap[t.status] || 0) + 1;
+    if (t.assignedStaffId && t.status !== "closed") {
+      staffLoadMap[t.assignedStaffName || "Unknown"] = (staffLoadMap[t.assignedStaffName || "Unknown"] || 0) + 1;
+    }
+  });
+
+  const chatbotCategoryMap: Record<string, number> = {};
+  const chatbotSubCategoryMap: Record<string, number> = {};
+  const issueSearchMap: Record<string, { name: string; count: number }> = {};
+  const eventTypeCounts = { category_selected: 0, subcategory_selected: 0, solution_provided: 0 };
+  const dailyChatbotMap: Record<string, number> = {};
+  const dailyTicketMap: Record<string, number> = {};
+
+  interactions.forEach((interaction) => {
+    if (interaction.eventType === "category_selected") {
+      eventTypeCounts.category_selected += 1;
+    } else if (interaction.eventType === "subcategory_selected") {
+      eventTypeCounts.subcategory_selected += 1;
+    } else if (interaction.eventType === "solution_provided") {
+      eventTypeCounts.solution_provided += 1;
+    }
+    chatbotCategoryMap[interaction.category] = (chatbotCategoryMap[interaction.category] || 0) + 1;
+
+    const issueKey = interaction.issueCode ? `${interaction.issueCode}::${interaction.issueTitle}` : interaction.issueTitle;
+    chatbotSubCategoryMap[issueKey] = (chatbotSubCategoryMap[issueKey] || 0) + 1;
+
+    const searchKey = interaction.issueCode || interaction.issueTitle;
+    issueSearchMap[searchKey] = issueSearchMap[searchKey] || {
+      name: interaction.issueCode ? `${interaction.issueCode} - ${interaction.issueTitle}` : interaction.issueTitle,
+      count: 0,
+    };
+    issueSearchMap[searchKey].count += 1;
+
+    const dayKey = new Date(interaction.createdAt).toISOString().slice(0, 10);
+    dailyChatbotMap[dayKey] = (dailyChatbotMap[dayKey] || 0) + 1;
+  });
+
+  tickets.forEach((ticket) => {
+    const dayKey = new Date(ticket.createdAt).toISOString().slice(0, 10);
+    dailyTicketMap[dayKey] = (dailyTicketMap[dayKey] || 0) + 1;
+  });
+
+  const totalChatbotQueries = interactions.length;
+  const totalTicketsGenerated = tickets.length;
+
+  return {
+    metrics: {
+      totalTickets: total,
+      pendingTickets: pending,
+      activeTickets: assigned,
+      closedTickets: closed,
+      avgResolutionTimeHrs: closedWithResolutionTime > 0 ? Number((totalResolutionHours / closedWithResolutionTime).toFixed(1)) : 0,
+      totalChatbotQueries,
+      totalCategoriesSelected: eventTypeCounts.category_selected,
+      totalSubCategoriesSelected: eventTypeCounts.subcategory_selected,
+      totalSolutionsProvided: eventTypeCounts.solution_provided,
+      totalTicketsGenerated,
+      ticketConversionRate: totalChatbotQueries > 0 ? Number(((totalTicketsGenerated / totalChatbotQueries) * 100).toFixed(1)) : 0,
+    },
+    categoryDistribution: Object.keys(categoryMap).map((cat) => ({ name: cat, value: categoryMap[cat] })),
+    chatbotCategoryDistribution: Object.keys(chatbotCategoryMap)
+      .sort((a, b) => chatbotCategoryMap[b] - chatbotCategoryMap[a])
+      .map((cat) => ({ name: cat, value: chatbotCategoryMap[cat] })),
+    chatbotSubCategoryDistribution: Object.keys(chatbotSubCategoryMap)
+      .sort((a, b) => chatbotSubCategoryMap[b] - chatbotSubCategoryMap[a])
+      .map((key) => ({ name: key, value: chatbotSubCategoryMap[key] })),
+    topSearchedIssues: Object.values(issueSearchMap)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+      .map((entry) => ({ name: entry.name, value: entry.count })),
+    dailyChatbotInteractions: Object.keys(dailyChatbotMap).sort().map((date) => ({ date, interactions: dailyChatbotMap[date] })),
+    dailyTicketGeneration: Object.keys(dailyTicketMap).sort().map((date) => ({ date, tickets: dailyTicketMap[date] })),
+    statusDistribution: [
+      { name: "Pending", value: pending, color: "#EF4444" },
+      { name: "Assigned", value: assigned, color: "#F59E0B" },
+      { name: "Closed", value: closed, color: "#10B981" },
+    ],
+    staffLoad: staff.map((s) => ({ name: s.name, tickets: staffLoadMap[s.name] || 0, status: s.status })),
+  };
 }
 
 function getTicketIdFromPath() {
@@ -96,6 +326,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketStatusFilter, setTicketStatusFilter] = useState("all");
   const [ticketDateFilter, setTicketDateFilter] = useState("all");
+  const [analyticsFilters, setAnalyticsFilters] = useState<AnalyticsFilters>(defaultAnalyticsFilters);
   const [userSearch, setUserSearch] = useState("");
   const [staffSearch, setStaffSearch] = useState("");
 
@@ -176,6 +407,23 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   }, []);
 
   useEffect(() => {
+    const savedState = sessionStorage.getItem(ANALYTICS_FILTER_STATE_KEY);
+    if (!savedState) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(savedState);
+      setAnalyticsFilters({
+        ...defaultAnalyticsFilters,
+        ...parsed,
+      });
+    } catch (error) {
+      console.error("Failed to restore analytics filter state:", error);
+    }
+  }, []);
+
+  useEffect(() => {
     sessionStorage.setItem(
       TICKET_LIST_STATE_KEY,
       JSON.stringify({
@@ -186,6 +434,10 @@ export default function AdminView({ onLogout }: AdminViewProps) {
       })
     );
   }, [ticketSearch, ticketStatusFilter, ticketDateFilter]);
+
+  useEffect(() => {
+    sessionStorage.setItem(ANALYTICS_FILTER_STATE_KEY, JSON.stringify(analyticsFilters));
+  }, [analyticsFilters]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -383,8 +635,107 @@ export default function AdminView({ onLogout }: AdminViewProps) {
     setActiveTab("tickets");
   };
 
+  const analyticsInteractions = (analytics?.sourceData?.interactions || []) as ChatbotInteraction[];
+  const analyticsSubCategoryOptions = useMemo(() => {
+    return Object.values(ISSUES)
+      .filter((issue) => analyticsFilters.category === "all" || issue.category === analyticsFilters.category)
+      .map((issue) => ({ value: issue.code, label: `${issue.code} - ${issue.title}`, category: issue.category }));
+  }, [analyticsFilters.category]);
+
+  useEffect(() => {
+    if (
+      analyticsFilters.subCategory !== "all" &&
+      !analyticsSubCategoryOptions.some((option) => option.value === analyticsFilters.subCategory)
+    ) {
+      setAnalyticsFilters((current) => ({ ...current, subCategory: "all" }));
+    }
+  }, [analyticsFilters.subCategory, analyticsSubCategoryOptions]);
+
+  const filteredAnalyticsSource = useMemo(() => {
+    const searchTerm = analyticsFilters.search.trim().toLowerCase();
+    const selectedIssue = analyticsFilters.subCategory !== "all" ? ISSUES[analyticsFilters.subCategory] : null;
+    const ticketStatusById = new Map(tickets.map((ticket) => [ticket.id, ticket.status]));
+
+    const ticketMatchesSearch = (ticket: Ticket) => {
+      if (!searchTerm) return true;
+      return [
+        ticket.category,
+        ticket.issueCode,
+        ticket.issueTitle,
+        ticket.id,
+      ].some((value) => value.toLowerCase().includes(searchTerm));
+    };
+
+    const interactionMatchesSearch = (interaction: ChatbotInteraction) => {
+      if (!searchTerm) return true;
+      return [
+        interaction.category,
+        interaction.issueCode || "",
+        interaction.issueTitle,
+        interaction.ticketId || "",
+      ].some((value) => value.toLowerCase().includes(searchTerm));
+    };
+
+    const matchesSubCategory = (issueCode: string | null | undefined, issueTitle: string) => {
+      if (!selectedIssue) return true;
+      return issueCode === selectedIssue.code || issueTitle === selectedIssue.title;
+    };
+
+    const filteredTicketRows = tickets.filter((ticket) => {
+      return (
+        ticketMatchesSearch(ticket) &&
+        isWithinDateRange(ticket.createdAt, analyticsFilters) &&
+        (analyticsFilters.category === "all" || ticket.category === analyticsFilters.category) &&
+        matchesSubCategory(ticket.issueCode, ticket.issueTitle) &&
+        matchesLanguage(ticket.language, analyticsFilters.language) &&
+        (analyticsFilters.status === "all" || ticket.status === analyticsFilters.status)
+      );
+    });
+
+    const filteredInteractionRows = analyticsInteractions.filter((interaction) => {
+      const linkedTicketStatus = interaction.ticketId ? ticketStatusById.get(interaction.ticketId) : null;
+      return (
+        interactionMatchesSearch(interaction) &&
+        isWithinDateRange(interaction.createdAt, analyticsFilters) &&
+        (analyticsFilters.category === "all" || interaction.category === analyticsFilters.category) &&
+        matchesSubCategory(interaction.issueCode, interaction.issueTitle) &&
+        matchesLanguage(interaction.language, analyticsFilters.language) &&
+        (analyticsFilters.status === "all" || linkedTicketStatus === analyticsFilters.status)
+      );
+    });
+
+    return {
+      tickets: filteredTicketRows,
+      interactions: filteredInteractionRows,
+    };
+  }, [analyticsFilters, analyticsInteractions, tickets]);
+
+  const filteredAnalytics = useMemo(
+    () => buildAnalyticsFromSource(filteredAnalyticsSource.tickets, filteredAnalyticsSource.interactions, staff),
+    [filteredAnalyticsSource.tickets, filteredAnalyticsSource.interactions, staff]
+  );
+
+  const updateAnalyticsFilter = <K extends keyof AnalyticsFilters>(key: K, value: AnalyticsFilters[K]) => {
+    setAnalyticsFilters((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "category" ? { subCategory: "all" } : {}),
+    }));
+  };
+
+  const resetAnalyticsFilters = () => setAnalyticsFilters(defaultAnalyticsFilters);
+
+  const activeAnalyticsFilterChips = [
+    analyticsFilters.search.trim() ? { key: "search", label: `Search: ${analyticsFilters.search.trim()}`, onRemove: () => updateAnalyticsFilter("search", "") } : null,
+    analyticsFilters.dateRange !== "all" ? { key: "dateRange", label: DATE_RANGE_OPTIONS.find((item) => item.value === analyticsFilters.dateRange)?.label || "Date Range", onRemove: () => updateAnalyticsFilter("dateRange", "all") } : null,
+    analyticsFilters.category !== "all" ? { key: "category", label: analyticsFilters.category, onRemove: () => updateAnalyticsFilter("category", "all") } : null,
+    analyticsFilters.subCategory !== "all" ? { key: "subCategory", label: analyticsSubCategoryOptions.find((item) => item.value === analyticsFilters.subCategory)?.label || analyticsFilters.subCategory, onRemove: () => updateAnalyticsFilter("subCategory", "all") } : null,
+    analyticsFilters.language !== "all" ? { key: "language", label: LANGUAGE_OPTIONS.find((item) => item.value === analyticsFilters.language)?.label || analyticsFilters.language, onRemove: () => updateAnalyticsFilter("language", "all") } : null,
+    analyticsFilters.status !== "all" ? { key: "status", label: STATUS_OPTIONS.find((item) => item.value === analyticsFilters.status)?.label || analyticsFilters.status, onRemove: () => updateAnalyticsFilter("status", "all") } : null,
+  ].filter(Boolean) as { key: string; label: string; onRemove: () => void }[];
+
   // Dynamic metrics helpers
-  const metrics = analytics?.metrics || {
+  const metrics = analytics ? filteredAnalytics.metrics : {
     totalTickets: 0,
     pendingTickets: 0,
     activeTickets: 0,
@@ -399,7 +750,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
   };
 
   const pieColors = ["#EF4444", "#F59E0B", "#10B981"];
-  const maxStaffTickets = Math.max(1, ...(analytics?.staffLoad?.map((item: any) => item.tickets || 0) || [1]));
+  const maxStaffTickets = Math.max(1, ...(filteredAnalytics.staffLoad?.map((item: any) => item.tickets || 0) || [1]));
 
   // Filtered Tickets
   const filteredTickets = tickets.filter((t) => {
@@ -650,6 +1001,127 @@ export default function AdminView({ onLogout }: AdminViewProps) {
             {/* ── TAB 1: DASHBOARD & RECHARTS ── */}
             {activeTab === "dashboard" && (
               <div className="space-y-4 sm:space-y-5 lg:space-y-6 min-w-0">
+                <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm sm:p-4 lg:p-5">
+                  <div className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700">
+                        <Filter className="h-4 w-4 text-blue-600" />
+                        Search & Filter
+                      </h3>
+                      <p className="mt-1 text-[10px] font-semibold text-slate-400 sm:text-xs">
+                        {filteredAnalyticsSource.tickets.length} matching tickets | {filteredAnalyticsSource.interactions.length} matching interaction records
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetAnalyticsFilters}
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[10px] font-bold uppercase tracking-wide text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Reset Filters
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-6">
+                    <div className="relative md:col-span-2 xl:col-span-2">
+                      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={analyticsFilters.search}
+                        onChange={(event) => updateAnalyticsFilter("search", event.target.value)}
+                        placeholder="Search category, sub-category, code, title, ticket ID..."
+                        className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+
+                    <select
+                      value={analyticsFilters.dateRange}
+                      onChange={(event) => updateAnalyticsFilter("dateRange", event.target.value as AnalyticsDateRange)}
+                      className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    >
+                      {DATE_RANGE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={analyticsFilters.category}
+                      onChange={(event) => updateAnalyticsFilter("category", event.target.value)}
+                      className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value="all">All Categories</option>
+                      {ANALYTICS_CATEGORIES.map((category) => (
+                        <option key={category} value={category}>{category}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={analyticsFilters.subCategory}
+                      onChange={(event) => updateAnalyticsFilter("subCategory", event.target.value)}
+                      className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value="all">All Sub-categories</option>
+                      {analyticsSubCategoryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={analyticsFilters.language}
+                      onChange={(event) => updateAnalyticsFilter("language", event.target.value)}
+                      className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    >
+                      {LANGUAGE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={analyticsFilters.status}
+                      onChange={(event) => updateAnalyticsFilter("status", event.target.value as AnalyticsFilters["status"])}
+                      className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    >
+                      {STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {analyticsFilters.dateRange === "custom" && (
+                    <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:max-w-xl">
+                      <input
+                        type="date"
+                        value={analyticsFilters.customStart}
+                        onChange={(event) => updateAnalyticsFilter("customStart", event.target.value)}
+                        className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                      />
+                      <input
+                        type="date"
+                        value={analyticsFilters.customEnd}
+                        onChange={(event) => updateAnalyticsFilter("customEnd", event.target.value)}
+                        className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+                  )}
+
+                  {activeAnalyticsFilterChips.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {activeAnalyticsFilterChips.map((chip) => (
+                        <button
+                          key={chip.key}
+                          type="button"
+                          onClick={chip.onRemove}
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 transition hover:border-blue-200 hover:bg-blue-100"
+                          title={`Remove ${chip.label}`}
+                        >
+                          <span className="truncate">{chip.label}</span>
+                          <X className="h-3 w-3 shrink-0" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Metric Summary Grid */}
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 xl:gap-4">
                   {[
@@ -703,9 +1175,9 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       Incoming Issues by Category
                     </h3>
                     <div className="h-72 sm:h-80">
-                      {analytics?.categoryDistribution?.length > 0 ? (
+                      {filteredAnalytics.categoryDistribution?.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={analytics.categoryDistribution} layout="vertical" margin={{ top: 8, right: 18, left: 16, bottom: 8 }}>
+                          <BarChart data={filteredAnalytics.categoryDistribution} layout="vertical" margin={{ top: 8, right: 18, left: 16, bottom: 8 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                             <XAxis type="number" stroke="#64748B" fontSize={11} tickLine={false} />
                             <YAxis
@@ -735,13 +1207,13 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       Operational Resolution Statuses
                     </h3>
                     <div className="min-h-72 sm:min-h-80 flex items-center">
-                      {analytics?.statusDistribution?.length > 0 ? (
+                      {filteredAnalytics.statusDistribution?.some((entry: any) => entry.value > 0) ? (
                         <div className="w-full flex flex-col gap-4 xl:flex-row">
                           <div className="h-56 w-full xl:h-72 xl:w-[68%]">
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart>
                                 <Pie
-                                  data={analytics.statusDistribution}
+                                  data={filteredAnalytics.statusDistribution}
                                   cx="50%"
                                   cy="50%"
                                   innerRadius={58}
@@ -749,7 +1221,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                                   paddingAngle={4}
                                   dataKey="value"
                                 >
-                                  {analytics.statusDistribution.map((entry: any, index: number) => (
+                                  {filteredAnalytics.statusDistribution.map((entry: any, index: number) => (
                                     <Cell key={`cell-${index}`} fill={pieColors[index % pieColors.length]} />
                                   ))}
                                 </Pie>
@@ -758,7 +1230,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                             </ResponsiveContainer>
                           </div>
                           <div className="flex w-full flex-col justify-center gap-2 xl:w-[32%] xl:pl-2">
-                            {analytics.statusDistribution.map((entry: any, index: number) => (
+                            {filteredAnalytics.statusDistribution.map((entry: any, index: number) => (
                               <div key={index} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-[10px] sm:text-xs">
                                 <span className="flex min-w-0 items-center gap-2">
                                   <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full" style={{ backgroundColor: pieColors[index] }}></span>
@@ -783,9 +1255,9 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       Category-wise Query Count
                     </h3>
                     <div className="h-72 sm:h-80">
-                      {analytics?.chatbotCategoryDistribution?.length > 0 ? (
+                      {filteredAnalytics.chatbotCategoryDistribution?.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={analytics.chatbotCategoryDistribution} layout="vertical" margin={{ top: 8, right: 18, left: 16, bottom: 8 }}>
+                          <BarChart data={filteredAnalytics.chatbotCategoryDistribution} layout="vertical" margin={{ top: 8, right: 18, left: 16, bottom: 8 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                             <XAxis type="number" stroke="#64748B" fontSize={11} tickLine={false} />
                             <YAxis
@@ -814,9 +1286,9 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       Sub-category-wise Query Count
                     </h3>
                     <div className="h-[26rem] sm:h-[30rem]">
-                      {analytics?.chatbotSubCategoryDistribution?.length > 0 ? (
+                      {filteredAnalytics.chatbotSubCategoryDistribution?.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={analytics.chatbotSubCategoryDistribution} layout="vertical" margin={{ top: 8, right: 20, left: 12, bottom: 8 }}>
+                          <BarChart data={filteredAnalytics.chatbotSubCategoryDistribution} layout="vertical" margin={{ top: 8, right: 20, left: 12, bottom: 8 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                             <XAxis type="number" stroke="#64748B" fontSize={11} tickLine={false} />
                             <YAxis
@@ -847,9 +1319,9 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       Daily Chatbot Interactions
                     </h3>
                     <div className="h-72 sm:h-80">
-                      {analytics?.dailyChatbotInteractions?.length > 0 ? (
+                      {filteredAnalytics.dailyChatbotInteractions?.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={analytics.dailyChatbotInteractions} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                          <AreaChart data={filteredAnalytics.dailyChatbotInteractions} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
                             <defs>
                               <linearGradient id="chatbotAreaFill" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.35} />
@@ -875,9 +1347,9 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                       Daily Ticket Generation
                     </h3>
                     <div className="h-72 sm:h-80">
-                      {analytics?.dailyTicketGeneration?.length > 0 ? (
+                      {filteredAnalytics.dailyTicketGeneration?.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={analytics.dailyTicketGeneration} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                          <LineChart data={filteredAnalytics.dailyTicketGeneration} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                             <XAxis dataKey="date" stroke="#64748B" fontSize={10} tickLine={false} tickFormatter={formatDailyLabel} interval="preserveStartEnd" />
                             <YAxis stroke="#64748B" fontSize={11} width={36} />
@@ -898,9 +1370,9 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                     Top 10 Most Searched Issues
                   </h3>
                   <div className="h-[26rem] sm:h-[30rem]">
-                    {analytics?.topSearchedIssues?.length > 0 ? (
+                    {filteredAnalytics.topSearchedIssues?.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={analytics.topSearchedIssues} layout="vertical" margin={{ top: 8, right: 20, left: 12, bottom: 8 }}>
+                        <BarChart data={filteredAnalytics.topSearchedIssues} layout="vertical" margin={{ top: 8, right: 20, left: 12, bottom: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                           <XAxis type="number" stroke="#64748B" fontSize={11} tickLine={false} />
                           <YAxis
@@ -930,7 +1402,7 @@ export default function AdminView({ onLogout }: AdminViewProps) {
                     Support Engineer Dispatch & Load Balancing
                   </h3>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
-                    {analytics?.staffLoad?.map((staffItem: any, index: number) => (
+                    {filteredAnalytics.staffLoad?.map((staffItem: any, index: number) => (
                       <div key={index} className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3 sm:p-4 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">

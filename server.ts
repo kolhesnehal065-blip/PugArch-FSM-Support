@@ -1548,6 +1548,9 @@ app.get("/api/analytics", asyncHandler(async (req, res) => {
       { name: "Closed", value: closed, color: "#10B981" },
     ],
     staffLoad,
+    sourceData: {
+      interactions,
+    },
   });
 }));
 
